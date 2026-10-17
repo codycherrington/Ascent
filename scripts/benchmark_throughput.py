@@ -7,6 +7,8 @@ Sweeps batch size x block size x dtype, timing full train steps
     .venv/bin/python scripts/benchmark_throughput.py --soak-minutes 10 --batch-size 16 --block-size 256 --dtype bf16
 """
 import argparse
+import json
+import math
 import os
 import subprocess
 import sys
@@ -52,28 +54,6 @@ def make_step(device, batch_size, block_size, dtype_name):
     return model, opt, step
 
 
-def bench_one(device, batch_size, block_size, dtype_name, warmup, steps):
-    model, opt, step = make_step(device, batch_size, block_size, dtype_name)
-    try:
-        for _ in range(warmup):
-            step()
-        sync(device)
-        t0 = time.perf_counter()
-        for _ in range(steps):
-            loss = step()
-        sync(device)
-        dt = time.perf_counter() - t0
-        loss = float(loss)
-        cur, drv = mem_mb(device)
-        return {"tok_s": batch_size * block_size * steps / dt, "step_ms": 1000 * dt / steps,
-                "loss": loss, "finite": loss == loss and abs(loss) != float("inf"),
-                "cur_mb": cur, "drv_mb": drv}
-    finally:
-        del model, opt, step
-        if device == "mps":
-            torch.mps.empty_cache()
-
-
 def therm():
     try:
         return subprocess.run(["pmset", "-g", "therm"], capture_output=True, text=True, timeout=10).stdout.strip()
@@ -112,43 +92,95 @@ def soak(device, batch_size, block_size, dtype_name, minutes, window_s=30):
           f"drop {drop:.1f}%, mean {sum(windows) / len(windows):.0f} tok/s over {len(windows)} windows")
 
 
+STEP_LIMIT_S = 30.0
+
+
+def run_setting_in_child(bs, bl, dt, warmup, steps, max_seconds):
+    """Run one setting in a subprocess so a hang (e.g. swapping) can be killed.
+
+    Returns (result dict or None, status string).
+    """
+    cmd = [sys.executable, os.path.abspath(__file__), "--child", f"{bs},{bl},{dt}",
+           "--warmup", str(warmup), "--steps", str(steps), "--max-seconds", str(max_seconds)]
+    timeout = max_seconds + 4 * STEP_LIMIT_S
+    try:
+        out = subprocess.run(cmd, capture_output=True, text=True, timeout=timeout)
+    except subprocess.TimeoutExpired:
+        return None, f"aborted (no result after {timeout:.0f}s)"
+    for line in out.stdout.splitlines():
+        if line.startswith("RESULT "):
+            r = json.loads(line[7:])
+            return (r, "ok") if "error" not in r else (None, r["error"])
+    return None, f"error: {(out.stderr.strip().splitlines() or ['no output'])[-1][:80]}"
+
+
+def child(spec, warmup, steps, max_seconds):
+    """Benchmark one setting and print a single RESULT line (used by the sweep)."""
+    bs, bl, dt = spec.split(",")
+    bs, bl = int(bs), int(bl)
+    device = "mps" if torch.backends.mps.is_available() else "cpu"
+    torch.manual_seed(0)
+    try:
+        model, opt, step = make_step(device, bs, bl, dt)
+        for _ in range(warmup):
+            t = time.perf_counter()
+            step()
+            sync(device)
+            if time.perf_counter() - t > STEP_LIMIT_S:
+                raise TimeoutError(f"aborted (warmup step > {STEP_LIMIT_S:.0f}s)")
+        t0, n = time.perf_counter(), 0
+        while n < steps and time.perf_counter() - t0 < max_seconds:
+            t = time.perf_counter()
+            loss = step()
+            sync(device)
+            n += 1
+            if time.perf_counter() - t > STEP_LIMIT_S:
+                raise TimeoutError(f"aborted (step > {STEP_LIMIT_S:.0f}s)")
+        dur = time.perf_counter() - t0
+        loss = float(loss)
+        cur, drv = mem_mb(device)
+        r = {"tok_s": bs * bl * n / dur, "step_ms": 1000 * dur / n, "steps": n, "loss": loss,
+             "finite": math.isfinite(loss), "cur_mb": cur, "drv_mb": drv}
+    except TimeoutError as e:
+        r = {"error": str(e)}
+    except RuntimeError as e:
+        r = {"error": "OOM" if "out of memory" in str(e).lower() else f"error: {str(e)[:60]}"}
+    print("RESULT " + json.dumps(r), flush=True)
+
+
 def main():
     p = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
-    p.add_argument("--batch-sizes", default="8,16,32,64")
+    p.add_argument("--batch-sizes", default="8,16,32")
     p.add_argument("--block-sizes", default="128,256")
-    p.add_argument("--dtypes", default="fp32,fp16,bf16")
+    p.add_argument("--dtypes", default="fp32,fp16", help="any of fp32,fp16,bf16 (bf16 was slowest on M2)")
     p.add_argument("--warmup", type=int, default=3)
     p.add_argument("--steps", type=int, default=20)
-    p.add_argument("--max-seconds", type=float, default=30.0,
-                   help="cap per setting: fewer timed steps if a step is slow")
+    p.add_argument("--max-seconds", type=float, default=15.0, help="timed-section cap per setting")
     p.add_argument("--soak-minutes", type=float, default=0)
     p.add_argument("--batch-size", type=int, default=None)
     p.add_argument("--block-size", type=int, default=None)
     p.add_argument("--dtype", default=None, choices=list(DTYPES))
+    p.add_argument("--child", default=None, help=argparse.SUPPRESS)
     args = p.parse_args()
+    if args.child:
+        child(args.child, args.warmup, args.steps, args.max_seconds)
+        return
     device = "mps" if torch.backends.mps.is_available() else "cpu"
-    torch.manual_seed(0)
 
     if args.soak_minutes and args.batch_size and args.block_size and args.dtype:
         soak(device, args.batch_size, args.block_size, args.dtype, args.soak_minutes)
         return
 
     results = []
-    print(f"device {device}, torch {torch.__version__}")
+    print(f"device {device}, torch {torch.__version__}; each setting runs in its own process, "
+          f"aborted if a step takes > {STEP_LIMIT_S:.0f}s")
     print(f"{'batch':>5} {'block':>5} {'dtype':>5} {'tok/s':>9} {'step ms':>8} {'loss':>7} {'cur MB':>7} {'drv MB':>7}")
     for bl in [int(x) for x in args.block_sizes.split(",")]:
         for bs in [int(x) for x in args.batch_sizes.split(",")]:
             for dt in args.dtypes.split(","):
-                # Probe one step to size the timed run to about max_seconds.
-                try:
-                    probe = bench_one(device, bs, bl, dt, warmup=args.warmup, steps=2)
-                    steps = max(3, min(args.steps, int(args.max_seconds * 1000 / probe["step_ms"]) - args.warmup))
-                    r = bench_one(device, bs, bl, dt, warmup=1, steps=steps)
-                except RuntimeError as e:
-                    msg = "OOM" if "out of memory" in str(e).lower() else f"error: {str(e)[:60]}"
-                    print(f"{bs:>5} {bl:>5} {dt:>5}  skipped ({msg})")
-                    if device == "mps":
-                        torch.mps.empty_cache()
+                r, status = run_setting_in_child(bs, bl, dt, args.warmup, args.steps, args.max_seconds)
+                if r is None:
+                    print(f"{bs:>5} {bl:>5} {dt:>5}  {status}", flush=True)
                     continue
                 r.update(batch=bs, block=bl, dtype=dt)
                 results.append(r)

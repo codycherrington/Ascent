@@ -1,7 +1,7 @@
 """Baseline trainer for Ascent: train the GPT in model.py on data/train.bin.
 
     .venv/bin/python train.py                         # 10M-token baseline with defaults
-    .venv/bin/python train.py --max-tokens 820000 --eval-interval 100
+    .venv/bin/python train.py --max-tokens 820000 --eval-interval 100 --sample-interval 0
     .venv/bin/python train.py --resume runs/<id>/ckpt.pt
 
 Each run writes runs/<YYYYMMDD-HHMMSS>/: config.json, metrics.jsonl,
@@ -46,10 +46,12 @@ def parse_args():
     p.add_argument("--weight-decay", type=float, default=0.1)
     p.add_argument("--grad-clip", type=float, default=1.0)
     p.add_argument("--dtype", default="fp32", choices=list(DTYPES))
-    p.add_argument("--eval-interval", type=int, default=250)
+    p.add_argument("--eval-interval", type=int, default=500, help="steps between val-loss evals")
+    p.add_argument("--sample-interval", type=int, default=1000,
+                   help="steps between sample generations (0 = only at the end; always at the end)")
     p.add_argument("--eval-batch-size", type=int, default=16)
     p.add_argument("--log-interval", type=int, default=10)
-    p.add_argument("--no-samples", action="store_true", help="skip sample generation at evals")
+    p.add_argument("--no-samples", action="store_true", help="never generate samples")
     p.add_argument("--seed", type=int, default=1337)
     p.add_argument("--resume", default=None, help="checkpoint to load weights, optimizer and step from")
     return p.parse_args()
@@ -191,16 +193,19 @@ def main():
 
     best_val = float("inf")
 
+    def do_samples(step):
+        t0 = time.perf_counter()
+        write_samples(model, tok, prompts, os.path.join(run_dir, f"samples_step{step:04d}.txt"), step)
+        sec = round(time.perf_counter() - t0, 2)
+        log({"type": "samples", "step": step, "samples_s": sec})
+        print(f"samples step {step}: {len(prompts)} prompts in {sec}s")
+
     def do_eval(step):
         nonlocal best_val
         t0 = time.perf_counter()
         vloss, ntok = evaluate(model, val, args.block_size, args.eval_batch_size, device, dtype)
         rec = {"type": "eval", "step": step, "val_loss": vloss, "val_ppl": math.exp(vloss),
                "val_tokens": ntok, "eval_s": round(time.perf_counter() - t0, 2)}
-        if not args.no_samples:
-            t1 = time.perf_counter()
-            write_samples(model, tok, prompts, os.path.join(run_dir, f"samples_step{step:04d}.txt"), step)
-            rec["samples_s"] = round(time.perf_counter() - t1, 2)
         if device == "mps":
             rec["mps_driver_mb"] = round(torch.mps.driver_allocated_memory() / 2**20)
         log(rec)
@@ -244,13 +249,20 @@ def main():
                 print("non-finite loss, stopping")
                 break
 
-        if step % args.eval_interval == 0:
+        evaled = step % args.eval_interval == 0
+        sampled = not args.no_samples and args.sample_interval > 0 and step % args.sample_interval == 0
+        if evaled:
             do_eval(step)
+        if sampled and step < max_steps:
+            do_samples(step)
+        if evaled or sampled:
             sync(device)
             t_last, last_step = time.perf_counter(), step
 
     if step % args.eval_interval != 0:
         do_eval(step)
+    if not args.no_samples:
+        do_samples(step)
     metrics.close()
     print(f"done at step {step}; best val loss {best_val:.4f}; run dir {run_dir}")
 

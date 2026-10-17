@@ -61,6 +61,17 @@ class TestModel(unittest.TestCase):
         top1 = generate(m, [5, 6], 8, temperature=1.0, top_k=1, seed=7)
         self.assertEqual(greedy, top1)
 
+    def test_generate_conditions_on_prompt(self):
+        m = tiny_model()
+        a, b = [1, 2, 3, 4], [40, 41, 42, 43]
+        with torch.no_grad():
+            la, _ = m(torch.tensor([a]))
+            lb, _ = m(torch.tensor([b]))
+        self.assertFalse(torch.allclose(la[0, -1], lb[0, -1]))
+        # The first greedy token is the argmax of the forward pass on the full prompt.
+        self.assertEqual(generate(m, a, 1, temperature=0.0)[0], int(la[0, -1].argmax()))
+        self.assertEqual(generate(m, b, 1, temperature=0.0)[0], int(lb[0, -1].argmax()))
+
     def test_generate_beyond_block_size(self):
         m = tiny_model()
         out = generate(m, list(range(10)), 20, temperature=0.0)
