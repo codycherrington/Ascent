@@ -6,7 +6,7 @@ How Ascent's first model is evaluated. The goal and success criteria live in `do
 
 - Data: the TinyStories validation split as provided by the dataset. It is split by story, never by sentence, so no story is partly in training and partly in validation.
 - The validation split is never trained on, including for tokenizer fitting or data-mixing decisions.
-- Each eval uses a fixed subset: the first 2,000 stories of the validation split. The data script from issue #2 fixes the exact subset so every run measures the same text.
+- Each eval uses a fixed subset: `data/tinystories_val_2000.jsonl`, the first 2,000 cleaned stories of the validation split, produced by `scripts/get_tinystories.py`, so every run measures the same text.
 - Metrics: mean cross-entropy loss per token, and perplexity = exp(loss). Computed at every eval.
 
 ## 2. Fixed prompt set and sample generation

@@ -4,3 +4,5 @@ torchaudio
 matplotlib
 datasets
 tqdm
+tokenizers
+numpy
