@@ -22,7 +22,7 @@ It tells simple, grammatical short stories. It may be wrong, silly or inconsiste
 
 ### Quantitative
 
-Validation loss and perplexity on the held-out split (see `eval/README.md`), measured at every eval. Milestone thresholds are not set yet.
+Validation loss and perplexity on the held-out split (see `eval/README.md`), measured at every eval and read from the run report (`report.html` / `report.md` in the run folder, see `docs/run-reports.md`). Milestone thresholds are not set yet.
 
 | Milestone | Val loss | Val perplexity | Notes |
 |-----------|----------|----------------|-------|
@@ -35,7 +35,7 @@ How thresholds will be chosen: run the baseline first and record its result. Set
 
 ### Qualitative
 
-Fluency rubric scores (grammar, coherence, repetition, stays-on-prompt, each 1-5) on samples from the fixed prompt set in `eval/prompts.txt`. See `eval/rubric.md`. Scores are by eye and subjective; they are a sanity check on the loss numbers, not a replacement for them.
+Fluency rubric scores (grammar, coherence, repetition, stays-on-prompt, each 1-5) on samples from the fixed prompt set in `eval/prompts.txt`. See `eval/rubric.md`; the report has a blank scoring sheet and the automatic text stats (distinct-n, repetition, loops) to read alongside. Scores are by eye and subjective; they are a sanity check on the loss numbers, not a replacement for them.
 
 ## Roadmap
 

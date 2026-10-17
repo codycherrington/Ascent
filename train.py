@@ -5,7 +5,7 @@
     .venv/bin/python train.py --resume runs/<id>/ckpt.pt
 
 Each run writes runs/<YYYYMMDD-HHMMSS>/: config.json, metrics.jsonl,
-samples_stepNNNN.txt, ckpt.pt and ckpt_best.pt.
+samples_stepNNNN.txt, ckpt.pt, ckpt_best.pt, report.html and report.md.
 """
 import argparse
 import json
@@ -52,6 +52,7 @@ def parse_args():
     p.add_argument("--eval-batch-size", type=int, default=16)
     p.add_argument("--log-interval", type=int, default=10)
     p.add_argument("--no-samples", action="store_true", help="never generate samples")
+    p.add_argument("--no-report", action="store_true", help="skip report.html/report.md at the end")
     p.add_argument("--seed", type=int, default=1337)
     p.add_argument("--resume", default=None, help="checkpoint to load weights, optimizer and step from")
     return p.parse_args()
@@ -265,6 +266,12 @@ def main():
         do_samples(step)
     metrics.close()
     print(f"done at step {step}; best val loss {best_val:.4f}; run dir {run_dir}")
+    if not args.no_report:
+        try:
+            from scripts.run_report import write_report
+            print(f"report: {write_report(run_dir)}")
+        except Exception as e:  # noqa: BLE001
+            print(f"warning: report failed ({type(e).__name__}: {e})")
 
 
 if __name__ == "__main__":

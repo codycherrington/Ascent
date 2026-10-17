@@ -8,7 +8,7 @@ Fluent English from scratch on TinyStories: a text-continuation story model, not
 
 ## Status
 
-Relaunch in progress. The data pipeline, BPE tokenizer, model, baseline trainer and throughput benchmark are written and tested, but **no model has been trained yet**: the first baseline run is still to do, so there are no weights or sample outputs. The roadmap (modular trainer, run records, generation CLI, training portal, experiments) is tracked in the GitHub Issues.
+Relaunch in progress. The data pipeline, BPE tokenizer, model, baseline trainer and throughput benchmark and per-run reports are written and tested, but **no model has been trained yet**: the first baseline run is still to do, so there are no weights or sample outputs. The roadmap (modular trainer, run records, generation CLI, training portal, experiments) is tracked in the GitHub Issues.
 
 ## Quickstart
 
@@ -24,7 +24,7 @@ python3 -m venv .venv
 .venv/bin/python -m unittest discover -s tests -v
 ```
 
-Each training run writes `runs/<YYYYMMDD-HHMMSS>/` with config, metrics, samples and checkpoints. Data and runs are gitignored.
+Each training run writes `runs/<YYYYMMDD-HHMMSS>/` with config, metrics, samples, checkpoints and a `report.html`/`report.md` (regenerate with `.venv/bin/python scripts/run_report.py runs/<id>`; `runs/index.html` lists all runs; see [docs/run-reports.md](docs/run-reports.md)). Data and runs are gitignored.
 
 ## Layout
 
@@ -33,7 +33,7 @@ Each training run writes `runs/<YYYYMMDD-HHMMSS>/` with config, metrics, samples
 | `model.py` | GPT model and `generate()` |
 | `tokenizer.py` | BPE tokenizer CLI and helpers |
 | `train.py` | baseline trainer |
-| `scripts/` | data download, MPS throughput benchmark |
+| `scripts/` | data download, MPS throughput benchmark, per-run report generator |
 | `eval/` | fixed prompts, rubric, eval protocol |
 | `tests/` | unit tests |
 | `docs/` | documentation |
@@ -43,6 +43,7 @@ Each training run writes `runs/<YYYYMMDD-HHMMSS>/` with config, metrics, samples
 
 - [docs/architecture.md](docs/architecture.md) - how the code base is structured
 - [docs/goal.md](docs/goal.md) - goal and success criteria
+- [docs/run-reports.md](docs/run-reports.md) - how to read a run report
 - [docs/tokenizer.md](docs/tokenizer.md) - tokenizer design and stats
 - [docs/datasets/tinystories.md](docs/datasets/tinystories.md) - dataset card
 - [eval/](eval/README.md) - evaluation protocol, prompts and rubric
