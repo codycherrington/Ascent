@@ -8,7 +8,13 @@ Fresh start. The old weights, data, and history were discarded.
 
 - First goal: fluent English from scratch on TinyStories. No persona yet; chat and factual correctness are deferred.
 - Roadmap lives in the GitHub Issues (modular tokenizer/trainer/model, run records, generation CLI, training portal, experiments).
-- `model.py` is the legacy monolith, kept for reference until the new modular trainer replaces it.
+- `model.py` is the new minimal GPT (~29.5M params, tied embeddings) used by `train.py`. The legacy monolith is in git history.
+
+## Commands
+- `.venv/bin/python tokenizer.py train|encode` - fit the BPE tokenizer / write `data/train.bin` and `data/val.bin`
+- `.venv/bin/python train.py` - baseline trainer (see `--help`); writes `runs/<YYYYMMDD-HHMMSS>/`
+- `.venv/bin/python scripts/benchmark_throughput.py` - MPS throughput sweep; `--soak-minutes M` for a thermal soak
+- `.venv/bin/python -m unittest discover -s tests -v` - unit tests
 
 ## Environment
 - Python env is `.venv/`; use `.venv/bin/python`.
