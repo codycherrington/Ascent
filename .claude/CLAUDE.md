@@ -6,6 +6,7 @@ Ascent is a from-scratch GPT-style decoder-only LLM (~29.5M params, tied embeddi
 ## Status
 - Relaunch: the old weights, data, and history were discarded; the legacy monolith is in git history.
 - Merged to `dev`: TinyStories data prep, BPE tokenizer, `model.py`, baseline `train.py`, throughput benchmark.
+- In PR #17 (not yet merged): per-run report (`scripts/run_report.py`, hooked into `train.py`).
 - Not done yet: the first baseline training run. `test` and `main` are intentionally not promoted until training works.
 - First goal: fluent English from scratch on TinyStories. No persona; chat and factual correctness are deferred.
 - Roadmap lives in GitHub Issues (modular tokenizer/trainer/model, run records, generation CLI, training portal, experiments).
@@ -18,7 +19,8 @@ Ascent is a from-scratch GPT-style decoder-only LLM (~29.5M params, tied embeddi
 - `scripts/benchmark_throughput.py` - MPS throughput sweep and thermal soak
 - `eval/` - fixed prompts, rubric, eval protocol
 - `dashboard.py` - intentionally empty (reserved for the training portal)
-- `tests/` - unittest suites for model and tokenizer
+- `scripts/run_report.py` - `report.html`/`report.md` per run and `runs/index.html` (see `docs/run-reports.md`)
+- `tests/` - unittest suites for model, tokenizer and run report
 
 ## Commands
 - `.venv/bin/python scripts/get_tinystories.py` - write `data/tinystories_train_seed.jsonl` and `data/tinystories_val_2000.jsonl`
@@ -37,7 +39,7 @@ Ascent is a from-scratch GPT-style decoder-only LLM (~29.5M params, tied embeddi
 ## Conventions
 - Gitignored, local-only: `data/` (only `.gitkeep` tracked), `runs/`, `docs/solutions-log.md`, `docs/legacy-issues-export.md`. Never commit model weights, checkpoints, or data.
 - `docs/solutions-log.md` is a dated journal of problems and solutions. Append entries with date and time (`## YYYY-MM-DD HH:MM TZ - title`). Never commit it.
-- Keep `docs/architecture.md` in sync when code structure, flags, or file formats change.
+- Keep `docs/architecture.md` (and `docs/run-reports.md` when report flags or stats change) in sync when code structure, flags, or file formats change.
 
 ## Git Workflow
 

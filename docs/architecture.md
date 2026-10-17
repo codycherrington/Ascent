@@ -19,7 +19,10 @@ data/tokenizer.json
 data/train.bin   data/val.bin        (flat uint16 token streams)
         |
         v  train.py  (imports model.py and the tokenizer helpers)
-runs/<YYYYMMDD-HHMMSS>/              (config, metrics, samples, checkpoints)
+runs/<YYYYMMDD-HHMMSS>/              (config, metrics, samples, checkpoints, report)
+        |
+        v  scripts/run_report.py     (called by train.py at the end; also standalone)
+runs/<id>/report.html, report.md     runs/index.html
 ```
 
 Each arrow is a separate command; nothing runs automatically. All commands run from the repo root with `.venv/bin/python`.
@@ -42,6 +45,7 @@ data/.gitkeep                   keeps the otherwise-ignored data/ dir in the rep
 docs/README.md                  index of the docs folder
 docs/architecture.md            this file
 docs/goal.md                    goal, non-goals, what success looks like
+docs/run-reports.md             how to read a run report (sections, flags, thresholds)
 docs/tokenizer.md               tokenizer rationale, usage, measured stats
 docs/datasets/tinystories.md    dataset card (source, license, filtering, counts)
 eval/README.md                  evaluation protocol
@@ -49,7 +53,9 @@ eval/prompts.txt                20 fixed continuation prompts
 eval/rubric.md                  1-5 fluency rubric
 scripts/get_tinystories.py      data download and cleaning
 scripts/benchmark_throughput.py MPS throughput sweep and thermal soak
+scripts/run_report.py           per-run report.html/report.md and runs/index.html
 tests/test_model.py             model unit tests
+tests/test_run_report.py        run report unit tests
 tests/test_tokenizer.py         tokenizer unit tests
 ```
 
@@ -58,7 +64,7 @@ Local-only, gitignored (never committed):
 | Path | What |
 |------|------|
 | `data/*` (except `.gitkeep`) | jsonl files, `tokenizer.json`, `train.bin`, `val.bin` |
-| `runs/` | training run folders |
+| `runs/` | training run folders, including `report.html`, `report.md` and `runs/index.html` |
 | `.venv/` | Python environment |
 | `*.pt`, `*.pth`, `*.safetensors`, `*.log`, `checkpoints/` | weights and logs |
 | `.claude/*` except `CLAUDE.md` | local Claude files |
@@ -227,7 +233,7 @@ Each run writes `runs/<YYYYMMDD-HHMMSS>/` (local time, second resolution; the fo
 | `report.html` | self-contained report (charts, flags, samples, scoring sheet); written at the end of the run |
 | `report.md` | compact plain-text summary of the same, for quick scanning by a human or an LLM |
 
-`runs/index.html` (one level up) lists every run, newest first.
+`runs/index.html` (one level up, written by `scripts/run_report.py`) lists every run, newest first. See `docs/run-reports.md`.
 
 `metrics.jsonl` record types:
 
@@ -246,31 +252,17 @@ The tokenizer is not yet copied into the run folder (`docs/tokenizer.md` lists t
     .venv/bin/python scripts/run_report.py runs/<id>     # one run (also refreshes the index)
     .venv/bin/python scripts/run_report.py --index       # index only
 
-Contents: header (status, git commit, device, params, config highlights, estimated wall time), key numbers (train first/min/final, best val loss/ppl/step, gap, tokens, epochs over 10.69M), charts (loss, lr, grad norm, throughput with rolling mean, step time), Observations, evals table, samples with text stats (distinct-1/2/3, repeated 4-gram fraction, mean words, eos fraction, greedy loops) and a blank manual scoring sheet, and a comparison with the previous run (config diff, deltas, val-loss overlay of the last 5). Incomplete runs (crash, truncated last line, no eval or samples) degrade to notes.
-
-Status: `complete` (last step = max_steps with a final eval), `interrupted` (stopped early but a final eval ran), `incomplete` (no final eval).
-
-Automatic flags (simple rules, meant as pointers, not verdicts):
-
-| Flag | Rule |
-|------|------|
-| non-finite loss | any NaN/inf train loss |
-| loss spike | train loss > 1.5x median of the previous 5 logged values |
-| grad-norm spike | grad norm > 3x the run median |
-| thermal throttle | median tok/s of last 10% of logs more than 10% below the first 10% (first record skipped; needs 11+ logs) |
-| undertrained / plateau / overfit | last eval improved >= 1% (still decreasing); < 1% (plateau); val rose > 1% above best (rising) |
-| train/val gap | val minus mean of last 5 train losses > 0.5 |
-| memory | `mps_driver_mb` > 75% of 8 GB |
+Sections, the exact text-stat definitions, the status values and every automatic flag with its threshold are described in `docs/run-reports.md`. Incomplete runs (crash, truncated last line, no eval or samples) degrade to notes rather than errors.
 
 ## 8. Eval
 
 Documented in `eval/README.md`; the pieces:
 
-- `eval/README.md`: the protocol. Held-out loss/perplexity on the fixed 2,000-story val set; fixed prompt set with fixed decoding settings; rubric use; automatic text-quality stats; how results are recorded.
+- `eval/README.md`: the protocol. Held-out loss/perplexity on the fixed 2,000-story val set; fixed prompt set with fixed decoding settings; rubric use; automatic text-quality stats (which are implemented and which are not); how results are recorded.
 - `eval/prompts.txt`: 20 prompts, one per line, no header or comments. Prompt id = line number. `train.py` reads this file directly.
 - `eval/rubric.md`: 1-5 fluency rubric (grammar, coherence, repetition, stays on prompt), scored by eye at milestones.
 
-Implemented in `train.py`: val loss/perplexity and the sample generation. The automatic text-quality stats (distinct-1/2/3, repeated 4-gram fraction, loops) are computed per samples file by `scripts/run_report.py` (averaged per output).
+Implemented in `train.py`: val loss/perplexity and the sample generation. Implemented in `scripts/run_report.py`, per samples file and per decoding mode: distinct-1/2/3, repeated 4-gram fraction, mean length in words, fraction of outputs that hit `<eos>`, and greedy loop count (definitions in `eval/README.md` section 4 and `docs/run-reports.md`). Not implemented: sentence-final punctuation fraction, and mean length in tokens. Rubric scoring is manual (a blank sheet is in `report.html`).
 
 ## 9. Tests and tooling
 
@@ -285,7 +277,9 @@ Run all tests:
 | `tests/test_model.py` | tiny CPU config: forward shape, causal masking, tied weights, initial loss near uniform, `generate` determinism with seed, top-k 1 equals greedy, conditioning on the prompt, generation beyond `block_size`, overfitting one batch |
 | `tests/test_tokenizer.py` | special token ids, vocab size, string round trips, no `<unk>` on ASCII, round trip of sample stories from the val jsonl. Skipped if `data/tokenizer.json` is missing |
 
-There are no tests for `train.py` or the scripts.
+| `tests/test_run_report.py` | run report generation and its helpers |
+
+There are no tests for `train.py`, `scripts/get_tinystories.py` or `scripts/benchmark_throughput.py`.
 
 `scripts/benchmark_throughput.py` times full train steps (forward, backward, clip, AdamW) on random tokens and writes no files.
 
@@ -299,7 +293,9 @@ There are no tests for `train.py` or the scripts.
 - `--resume` reseeds the RNG (batches repeat) and starts a new run folder; see section 6.
 - `dashboard.py` is empty; the training portal is a roadmap item.
 - The modular trainer, run-record tooling (such as copying the tokenizer into runs) and the generation CLI are roadmap items (see GitHub Issues); `train.py` is a single baseline file.
-- Automatic text-quality stats from `eval/README.md` are not implemented.
+- Two automatic text stats from `eval/README.md` are not implemented (sentence-final punctuation fraction, mean length in tokens); the rest are in `scripts/run_report.py`. The report flags are rough pointers, and the stats are word-based, not token-based.
+- Rubric scores are not stored anywhere: the scoring sheet in `report.html` is blank and not saved.
+- The report has only been exercised on short smoke runs; no baseline run exists yet.
 - Only TinyStories is supported; no chat format, persona or factual training.
 
 ## 11. Development workflow

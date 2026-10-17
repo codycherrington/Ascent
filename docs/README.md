@@ -1,13 +1,22 @@
 # Ascent docs
 
-This folder holds project documentation that is not code. Right now that is one thing: a dated log of problems we ran into and the solutions we worked out, kept so the project's story can be assembled later.
+Project documentation. Tracked docs are listed first; the local-only files are gitignored and a fresh clone will not have them.
 
 ## Contents
 
-- `architecture.md` - technical reference for how the code base is structured: pipeline, files, model, trainer, run records, tests.
-- `solutions-log.md` - chronological log of problems, causes, solutions and decisions. This is a local-only file: it is listed in `.gitignore` and not committed, and is kept in this folder for the project's story. A fresh clone will not have it.
+- [goal.md](goal.md) - the first goal (fluent English on TinyStories), non-goals and success criteria.
+- [architecture.md](architecture.md) - technical reference for how the code base is structured: pipeline, files, model, trainer, run records, tests.
+- [run-reports.md](run-reports.md) - how to read a run's `report.html` / `report.md`: sections, automatic flags and thresholds, text stats, regenerating.
+- [tokenizer.md](tokenizer.md) - byte-level BPE tokenizer rationale, usage and measured stats.
+- [datasets/tinystories.md](datasets/tinystories.md) - TinyStories dataset card (source, license, filtering, counts).
+- [../eval/README.md](../eval/README.md) - evaluation protocol; also [../eval/rubric.md](../eval/rubric.md) (fluency rubric) and `eval/prompts.txt` (20 fixed prompts).
 
-## Adding an entry
+Local only (gitignored):
+
+- `solutions-log.md` - chronological log of problems, causes, solutions and decisions, kept so the project's story can be assembled later.
+- `legacy-issues-export.md` - backup export of the old issues.
+
+## Adding an entry to the solutions log
 
 1. Open `solutions-log.md` and copy the template from the "Entry template" section.
 2. Get the timestamp with `date '+%Y-%m-%d %H:%M %Z'`. Always include both date and time, with timezone.
