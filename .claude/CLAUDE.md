@@ -1,16 +1,27 @@
 # Ascent
 
 ## Project
-Ascent is a from-scratch GPT-style decoder-only LLM trained locally on an M2 MacBook Air (8GB unified memory, fanless, so thermals matter) with PyTorch + MPS.
+Ascent is a from-scratch GPT-style decoder-only LLM (~29.5M params, tied embeddings) trained locally on an M2 MacBook Air (8GB unified memory, fanless, so thermals matter) with PyTorch + MPS. See `docs/architecture.md` for the full technical reference and `docs/goal.md` for the goal.
 
-## Status: relaunch
-Fresh start. The old weights, data, and history were discarded.
+## Status
+- Relaunch: the old weights, data, and history were discarded; the legacy monolith is in git history.
+- Merged to `dev`: TinyStories data prep, BPE tokenizer, `model.py`, baseline `train.py`, throughput benchmark.
+- Not done yet: the first baseline training run. `test` and `main` are intentionally not promoted until training works.
+- First goal: fluent English from scratch on TinyStories. No persona; chat and factual correctness are deferred.
+- Roadmap lives in GitHub Issues (modular tokenizer/trainer/model, run records, generation CLI, training portal, experiments).
 
-- First goal: fluent English from scratch on TinyStories. No persona yet; chat and factual correctness are deferred.
-- Roadmap lives in the GitHub Issues (modular tokenizer/trainer/model, run records, generation CLI, training portal, experiments).
-- `model.py` is the new minimal GPT (~29.5M params, tied embeddings) used by `train.py`. The legacy monolith is in git history.
+## Code map
+- `scripts/get_tinystories.py` - stream and clean TinyStories into `data/*.jsonl`
+- `tokenizer.py` - byte-level BPE (vocab 8192); `train` / `encode` CLI plus `load_tokenizer`, `encode`, `decode`
+- `model.py` - GPT, `GPTConfig`, `generate()` (no KV cache)
+- `train.py` - single-file baseline trainer; writes `runs/<YYYYMMDD-HHMMSS>/`
+- `scripts/benchmark_throughput.py` - MPS throughput sweep and thermal soak
+- `eval/` - fixed prompts, rubric, eval protocol
+- `dashboard.py` - intentionally empty (reserved for the training portal)
+- `tests/` - unittest suites for model and tokenizer
 
 ## Commands
+- `.venv/bin/python scripts/get_tinystories.py` - write `data/tinystories_train_seed.jsonl` and `data/tinystories_val_2000.jsonl`
 - `.venv/bin/python tokenizer.py train|encode` - fit the BPE tokenizer / write `data/train.bin` and `data/val.bin`
 - `.venv/bin/python train.py` - baseline trainer (see `--help`); writes `runs/<YYYYMMDD-HHMMSS>/`
 - `.venv/bin/python scripts/benchmark_throughput.py` - MPS throughput sweep; `--soak-minutes M` for a thermal soak
@@ -18,10 +29,14 @@ Fresh start. The old weights, data, and history were discarded.
 
 ## Environment
 - Python env is `.venv/`; use `.venv/bin/python`.
-- Do not commit model weights, checkpoints, or data (all gitignored; `data/` holds only `.gitkeep`).
+- Device is MPS when available, else CPU. fp32 is the default dtype (fp16 gave no gain, bf16 was slower).
+- 8GB fanless: close memory-heavy apps before training. Batch 32 at block 256 swaps; the default is batch 16.
+- Do not set `PYTORCH_MPS_HIGH_WATERMARK_RATIO=0.0`.
 
-## Local journal
-`docs/solutions-log.md` is a local-only, gitignored, dated journal of problems and solutions. Append entries with date and time (`## YYYY-MM-DD HH:MM TZ - title`). Never commit it.
+## Conventions
+- Gitignored, local-only: `data/` (only `.gitkeep` tracked), `runs/`, `docs/solutions-log.md`, `docs/legacy-issues-export.md`. Never commit model weights, checkpoints, or data.
+- `docs/solutions-log.md` is a dated journal of problems and solutions. Append entries with date and time (`## YYYY-MM-DD HH:MM TZ - title`). Never commit it.
+- Keep `docs/architecture.md` in sync when code structure, flags, or file formats change.
 
 ## Git Workflow
 

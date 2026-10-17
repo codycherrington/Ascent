@@ -4,6 +4,7 @@ This folder holds project documentation that is not code. Right now that is one 
 
 ## Contents
 
+- `architecture.md` - technical reference for how the code base is structured: pipeline, files, model, trainer, run records, tests.
 - `solutions-log.md` - chronological log of problems, causes, solutions and decisions. This is a local-only file: it is listed in `.gitignore` and not committed, and is kept in this folder for the project's story. A fresh clone will not have it.
 
 ## Adding an entry
