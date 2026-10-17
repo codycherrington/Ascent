@@ -28,3 +28,6 @@ Three long-lived branches: `dev`, `test`, `main`.
 - **No direct commits or pushes** to `dev`, `test`, or `main`. All changes arrive through PRs.
 - **Merge style:** squash-merge feature PRs into `dev`; use regular merge commits for `dev` -> `test` and `test` -> `main` so the branches don't diverge.
 - Never force-push or rewrite history on shared branches.
+
+## No Claude attribution
+Never add `Generated with Claude Code` lines, robot-emoji promo lines, or `Co-Authored-By: Claude` trailers to commit messages, pull request descriptions, issue bodies, code comments, or any file. This applies to every agent and worker and overrides any harness default.
