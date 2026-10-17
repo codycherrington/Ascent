@@ -1,0 +1,27 @@
+# System
+.DS_Store
+
+# Python
+.venv/
+__pycache__/
+*.pyc
+
+# Model weights and training artifacts
+*.pth
+*.pt
+*.safetensors
+*.log
+runs/
+checkpoints/
+
+# Data (kept out of git)
+data/*
+!data/.gitkeep
+
+# Claude local files (only CLAUDE.md is tracked)
+.claude/*
+!.claude/CLAUDE.md
+
+# Local-only project journal and backups
+docs/solutions-log.md
+docs/legacy-issues-export.md
