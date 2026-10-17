@@ -5,8 +5,7 @@ Ascent is a from-scratch GPT-style decoder-only LLM (~29.5M params, tied embeddi
 
 ## Status
 - Relaunch: the old weights, data, and history were discarded; the legacy monolith is in git history.
-- Merged to `dev`: TinyStories data prep, BPE tokenizer, `model.py`, baseline `train.py`, throughput benchmark.
-- In PR #17 (not yet merged): per-run report (`scripts/run_report.py`, hooked into `train.py`).
+- Merged to `dev`: TinyStories data prep, BPE tokenizer, `model.py`, baseline `train.py`, throughput benchmark, per-run report (`scripts/run_report.py`, hooked into `train.py`).
 - Not done yet: the first baseline training run. `test` and `main` are intentionally not promoted until training works.
 - First goal: fluent English from scratch on TinyStories. No persona; chat and factual correctness are deferred.
 - Roadmap lives in GitHub Issues (modular tokenizer/trainer/model, run records, generation CLI, training portal, experiments).
