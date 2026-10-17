@@ -24,6 +24,7 @@ Ascent is a from-scratch GPT-style decoder-only LLM (~29.5M params, tied embeddi
 - `.venv/bin/python scripts/get_tinystories.py` - write `data/tinystories_train_seed.jsonl` and `data/tinystories_val_2000.jsonl`
 - `.venv/bin/python tokenizer.py train|encode` - fit the BPE tokenizer / write `data/train.bin` and `data/val.bin`
 - `.venv/bin/python train.py` - baseline trainer (see `--help`); writes `runs/<YYYYMMDD-HHMMSS>/`
+- `.venv/bin/python scripts/run_report.py runs/<id>` - regenerate `report.html`/`report.md` (train.py does this automatically; `--index` rebuilds `runs/index.html`)
 - `.venv/bin/python scripts/benchmark_throughput.py` - MPS throughput sweep; `--soak-minutes M` for a thermal soak
 - `.venv/bin/python -m unittest discover -s tests -v` - unit tests
 

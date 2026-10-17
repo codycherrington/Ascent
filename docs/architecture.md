@@ -209,6 +209,7 @@ Loads model weights, optimizer state and step from the checkpoint, then continue
 | `--eval-batch-size` | 16 | batch size for eval |
 | `--log-interval` | 10 | steps between train records |
 | `--no-samples` | off | never generate samples |
+| `--no-report` | off | skip `report.html`/`report.md` at the end |
 | `--seed` | 1337 | seeds torch and the batch sampler |
 | `--resume` | none | checkpoint to continue from |
 
@@ -223,6 +224,10 @@ Each run writes `runs/<YYYYMMDD-HHMMSS>/` (local time, second resolution; the fo
 | `samples_stepNNNN.txt` | header (step and decoding settings), then per prompt: prompt, sampled output, greedy output |
 | `ckpt.pt` | latest checkpoint (written at each eval) |
 | `ckpt_best.pt` | checkpoint with the lowest val loss so far |
+| `report.html` | self-contained report (charts, flags, samples, scoring sheet); written at the end of the run |
+| `report.md` | compact plain-text summary of the same, for quick scanning by a human or an LLM |
+
+`runs/index.html` (one level up) lists every run, newest first.
 
 `metrics.jsonl` record types:
 
@@ -234,6 +239,29 @@ Each run writes `runs/<YYYYMMDD-HHMMSS>/` (local time, second resolution; the fo
 
 The tokenizer is not yet copied into the run folder (`docs/tokenizer.md` lists this as future run-records work).
 
+## 7a. Run reports
+
+`scripts/run_report.py` turns a run folder into `report.html` and `report.md` and rebuilds `runs/index.html`. `train.py` calls it at the very end (also after Ctrl-C) inside try/except, so a report failure only prints a warning and never changes the exit code; `--no-report` skips it. Run folders are local and gitignored, so reports are derived files: regenerate any time with
+
+    .venv/bin/python scripts/run_report.py runs/<id>     # one run (also refreshes the index)
+    .venv/bin/python scripts/run_report.py --index       # index only
+
+Contents: header (status, git commit, device, params, config highlights, estimated wall time), key numbers (train first/min/final, best val loss/ppl/step, gap, tokens, epochs over 10.69M), charts (loss, lr, grad norm, throughput with rolling mean, step time), Observations, evals table, samples with text stats (distinct-1/2/3, repeated 4-gram fraction, mean words, eos fraction, greedy loops) and a blank manual scoring sheet, and a comparison with the previous run (config diff, deltas, val-loss overlay of the last 5). Incomplete runs (crash, truncated last line, no eval or samples) degrade to notes.
+
+Status: `complete` (last step = max_steps with a final eval), `interrupted` (stopped early but a final eval ran), `incomplete` (no final eval).
+
+Automatic flags (simple rules, meant as pointers, not verdicts):
+
+| Flag | Rule |
+|------|------|
+| non-finite loss | any NaN/inf train loss |
+| loss spike | train loss > 1.5x median of the previous 5 logged values |
+| grad-norm spike | grad norm > 3x the run median |
+| thermal throttle | median tok/s of last 10% of logs more than 10% below the first 10% (first record skipped; needs 11+ logs) |
+| undertrained / plateau / overfit | last eval improved >= 1% (still decreasing); < 1% (plateau); val rose > 1% above best (rising) |
+| train/val gap | val minus mean of last 5 train losses > 0.5 |
+| memory | `mps_driver_mb` > 75% of 8 GB |
+
 ## 8. Eval
 
 Documented in `eval/README.md`; the pieces:
@@ -242,7 +270,7 @@ Documented in `eval/README.md`; the pieces:
 - `eval/prompts.txt`: 20 prompts, one per line, no header or comments. Prompt id = line number. `train.py` reads this file directly.
 - `eval/rubric.md`: 1-5 fluency rubric (grammar, coherence, repetition, stays on prompt), scored by eye at milestones.
 
-Implemented in `train.py`: val loss/perplexity and the sample generation. The automatic text-quality stats (distinct-n, repeated 4-gram, etc.) described in `eval/README.md` are not computed by any code yet.
+Implemented in `train.py`: val loss/perplexity and the sample generation. The automatic text-quality stats (distinct-1/2/3, repeated 4-gram fraction, loops) are computed per samples file by `scripts/run_report.py` (averaged per output).
 
 ## 9. Tests and tooling
 

@@ -24,7 +24,7 @@ python3 -m venv .venv
 .venv/bin/python -m unittest discover -s tests -v
 ```
 
-Each training run writes `runs/<YYYYMMDD-HHMMSS>/` with config, metrics, samples and checkpoints. Data and runs are gitignored.
+Each training run writes `runs/<YYYYMMDD-HHMMSS>/` with config, metrics, samples, checkpoints and a `report.html`/`report.md` (regenerate with `.venv/bin/python scripts/run_report.py runs/<id>`; `runs/index.html` lists all runs). Data and runs are gitignored.
 
 ## Layout
 
