@@ -23,8 +23,11 @@ Ascent is a from-scratch GPT-style decoder-only LLM (~29.5M params, tied embeddi
 
 ## Commands
 - `.venv/bin/python scripts/get_tinystories.py` - write `data/tinystories_train_seed.jsonl` and `data/tinystories_val_2000.jsonl`
+- `.venv/bin/python scripts/get_tinydialogues.py` - download TinyDialogues into `data/tinydialogues/` and print per-age stats
+- `.venv/bin/python scripts/prepare_chat_data.py` - write `data/chat_train.bin` and `data/chat_val.bin` (chat fine-tuning data, see `--help`)
 - `.venv/bin/python tokenizer.py train|encode` - fit the BPE tokenizer / write `data/train.bin` and `data/val.bin`
 - `.venv/bin/python train.py` - baseline trainer (see `--help`); writes `runs/<YYYYMMDD-HHMMSS>/`
+- `.venv/bin/python train.py --init-from runs/<id>/ckpt_best.pt --train-bin data/chat_train.bin --val-bin data/chat_val.bin` - fine-tune from a checkpoint's weights (fresh optimizer, step 0)
 - `.venv/bin/python scripts/run_report.py runs/<id>` - regenerate `report.html`/`report.md` (train.py does this automatically; `--index` rebuilds `runs/index.html`)
 - `.venv/bin/python chat.py` - prompt -> continuation CLI for the newest checkpoint (base model, continues stories; `--run`, `--ckpt`, `--prompt`, `/help`)
 - `.venv/bin/python scripts/benchmark_throughput.py` - MPS throughput sweep; `--soak-minutes M` for a thermal soak

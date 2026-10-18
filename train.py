@@ -57,7 +57,13 @@ def parse_args():
     p.add_argument("--no-report", action="store_true", help="skip report.html/report.md at the end")
     p.add_argument("--seed", type=int, default=1337)
     p.add_argument("--resume", default=None, help="checkpoint to load weights, optimizer and step from")
-    return p.parse_args()
+    p.add_argument("--init-from", default=None,
+                   help="checkpoint to load model weights only from (fresh optimizer, step 0, new LR schedule); "
+                        "exclusive with --resume")
+    args = p.parse_args()
+    if args.init_from and args.resume:
+        p.error("--init-from and --resume are mutually exclusive")
+    return args
 
 
 def git_commit():
@@ -121,6 +127,25 @@ def write_samples(model, tok, prompts, path, step):
                     f"--- greedy ---\n{decode(tok, greedy)}\n\n")
 
 
+def load_init_weights(model, path, cfg):
+    """Load only the model weights from checkpoint `path` into `model` (fine-tune start).
+
+    Raises ValueError if the checkpoint's model shape differs from `cfg` (dropout may differ).
+    """
+    ck = torch.load(path, map_location="cpu", weights_only=False)
+    saved = ck.get("config", {}).get("model")
+    if saved is not None:
+        want = asdict(cfg)
+        diff = {k: (saved.get(k), want[k]) for k in want if k != "dropout" and saved.get(k) != want[k]}
+        if diff:
+            raise ValueError(f"--init-from {path}: model shape mismatch (checkpoint, requested): {diff}")
+    try:
+        model.load_state_dict(ck["model"])
+    except RuntimeError as e:
+        raise ValueError(f"--init-from {path}: weights do not fit the requested model: {e}") from e
+    return ck.get("step", 0)
+
+
 def save_ckpt(path, model, opt, step, config):
     """Write a CPU copy atomically (temp file, then rename)."""
     state = {
@@ -170,6 +195,10 @@ def main():
         opt.load_state_dict(ck["optimizer"])
         start_step = ck["step"]
         print(f"resumed from {args.resume} at step {start_step}")
+
+    if args.init_from:
+        init_step = load_init_weights(model, args.init_from, cfg)
+        print(f"initialised weights from {args.init_from} (its step {init_step}); optimizer fresh, step 0")
 
     run_dir = os.path.join(args.out_dir, time.strftime("%Y%m%d-%H%M%S"))
     os.makedirs(run_dir, exist_ok=True)
