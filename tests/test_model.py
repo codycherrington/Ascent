@@ -7,7 +7,10 @@ import unittest
 import torch
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
-from model import GPT, GPTConfig, generate  # noqa: E402
+from model import GPT, GPTConfig, generate, generate_stream  # noqa: E402
+
+# Output of the pre-refactor generate() for tiny_model(), prompt [1, 2, 3], seed 1234.
+PINNED_SEEDED = [6, 36, 42, 50, 55, 5, 5, 5, 6, 37, 26, 50]
 
 TINY = GPTConfig(vocab_size=64, n_layer=2, n_head=2, n_embd=32, block_size=16)
 
@@ -71,6 +74,21 @@ class TestModel(unittest.TestCase):
         # The first greedy token is the argmax of the forward pass on the full prompt.
         self.assertEqual(generate(m, a, 1, temperature=0.0)[0], int(la[0, -1].argmax()))
         self.assertEqual(generate(m, b, 1, temperature=0.0)[0], int(lb[0, -1].argmax()))
+
+    def test_stream_matches_generate(self):
+        m = tiny_model()
+        kw = dict(temperature=0.8, top_k=5, seed=1234)
+        full = generate(m, [1, 2, 3], 12, **kw)
+        self.assertEqual(full, list(generate_stream(m, [1, 2, 3], 12, **kw)))
+        self.assertEqual(full, PINNED_SEEDED)
+
+    def test_stream_stops_after_eos_and_restores_mode(self):
+        m = tiny_model()
+        m.train()
+        first = generate(m, [1, 2], 1, temperature=0.0)[0]
+        out = list(generate_stream(m, [1, 2], 10, temperature=0.0, eos_id=first))
+        self.assertEqual(out, [first])
+        self.assertTrue(m.training)
 
     def test_generate_beyond_block_size(self):
         m = tiny_model()

@@ -38,7 +38,8 @@ LICENSE
 README.md                       short project summary
 requirements.txt                torch, torchvision, torchaudio, matplotlib, datasets, tqdm, tokenizers, numpy
 dashboard.py                    intentionally empty; reserved for the future training portal
-model.py                        GPT model, param counts, generate()
+model.py                        GPT model, param counts, generate() and generate_stream()
+chat.py                         prompt -> continuation CLI for a trained checkpoint
 tokenizer.py                    BPE train/encode CLI and load_tokenizer/encode/decode helpers
 train.py                        baseline trainer (single file)
 data/.gitkeep                   keeps the otherwise-ignored data/ dir in the repo
@@ -291,6 +292,7 @@ Run all tests:
 | `tests/test_tokenizer.py` | special token ids, vocab size, string round trips, no `<unk>` on ASCII, round trip of sample stories from the val jsonl. Skipped if `data/tokenizer.json` is missing |
 
 | `tests/test_run_report.py` | run report generation and its helpers |
+| `tests/test_chat.py` | chat CLI helpers with a tiny random model: checkpoint discovery, incremental decode, slash commands, eos handling, truncation |
 | `tests/test_console.py` | telemetry parsers on canned `sysctl`/`pmset`/`ioreg`/`vm_stat` output, rolling rate and ETA, throttle detector, formatting, live monitor |
 
 There are no tests for `train.py`, `scripts/get_tinystories.py` or `scripts/benchmark_throughput.py`.
@@ -300,13 +302,39 @@ There are no tests for `train.py`, `scripts/get_tinystories.py` or `scripts/benc
 - Sweep (default): `--batch-sizes 8,16,32`, `--block-sizes 128,256`, `--dtypes fp32,fp16`, `--warmup 3`, `--steps 20`, `--max-seconds 15`. Each setting runs in a child process that is killed if a step takes over 30 s. Prints tok/s, step ms, loss and MPS memory, then the best setting.
 - Soak: `--soak-minutes M` with `--batch-size`, `--block-size` and `--dtype` runs a thermal soak directly; with `--soak-minutes` alone it sweeps first and soaks the best setting. It reports tok/s per 30 s window plus `pmset -g therm` at start, middle and end, and the first-vs-last window drop.
 
+## 9a. Chat CLI
+
+`chat.py` loads a checkpoint once and runs a prompt -> continuation session, streaming tokens as `model.generate_stream()` yields them. Ascent is a base model trained only on TinyStories: it continues your text as a children's story, it does not answer questions or follow instructions.
+
+```
+.venv/bin/python chat.py                                   # newest run's ckpt_best.pt (falls back to ckpt.pt)
+.venv/bin/python chat.py --prompt "Once upon a time" --seed 1   # one-shot: print continuation, exit
+```
+
+| Flag | Default | Meaning |
+|------|---------|---------|
+| `--run runs/<id>` | newest run with a checkpoint | run folder; uses its `ckpt_best.pt`, else `ckpt.pt` |
+| `--ckpt PATH` | | explicit checkpoint file (beats `--run`) |
+| `--tokenizer PATH` | `data/tokenizer.json` | tokenizer file |
+| `--device auto\|mps\|cpu` | `auto` | MPS if available, else CPU |
+| `--temperature` | 0.8 | 0 = greedy |
+| `--top-k` | 40 | 0 = off |
+| `--max-new-tokens` | 150 | per reply |
+| `--seed` | random | the seed used is printed after every reply so a run can be reproduced |
+| `--no-stop` | off | do not stop at `<eos>` (the literal `<eos>` text is always hidden) |
+| `--prompt TEXT` | | one-shot mode; continuation to stdout, stats to stderr |
+
+In the session: `/help`, `/temp X`, `/topk N`, `/len N`, `/seed N|random`, `/greedy` (toggle), `/again` (same prompt, new seed), `/continue` (extend the last output), `/info`, `/quit` (or Ctrl-D). Ctrl-C during generation stops that reply and keeps the session; at an empty prompt it prints a hint. After `<eos>` a dim `[end of story]` marker is shown. Prompts longer than `block_size` are cut to their last `block_size` tokens with a notice. Colour is used only when stdout is a TTY and `NO_COLOR` is unset; piped stdin works.
+
+Limitations: base model, not instruction-tuned (no Q&A or chat behaviour); no KV cache, so each token re-runs the full context; the incremental decoder re-decodes the whole reply each step.
+
 ## 10. Known limitations
 
-- `generate()` has no KV cache, so sampling is slow (20 prompts x 2 modes x 120 tokens per sample round).
+- `generate()` / `generate_stream()` have no KV cache, so sampling is slow (the chat CLI included; roughly 35-90 tok/s on MPS for this model; 20 prompts x 2 modes x 120 tokens per sample round).
 - The live SIGINT path and `--sample-interval` have not been tested in a live run.
 - `--resume` reseeds the RNG (batches repeat) and starts a new run folder; see section 6.
 - `dashboard.py` is empty; the training portal is a roadmap item.
-- The modular trainer, run-record tooling (such as copying the tokenizer into runs) and the generation CLI are roadmap items (see GitHub Issues); `train.py` is a single baseline file.
+- The modular trainer, run-record tooling (such as copying the tokenizer into runs) are roadmap items (see GitHub Issues); `train.py` is a single baseline file.
 - Two automatic text stats from `eval/README.md` are not implemented (sentence-final punctuation fraction, mean length in tokens); the rest are in `scripts/run_report.py`. The report flags are rough pointers, and the stats are word-based, not token-based.
 - Rubric scores are not stored anywhere: the scoring sheet in `report.html` is blank and not saved.
 - The report has only been exercised on short smoke runs; no baseline run exists yet.
