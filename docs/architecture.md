@@ -54,8 +54,10 @@ eval/rubric.md                  1-5 fluency rubric
 scripts/get_tinystories.py      data download and cleaning
 scripts/benchmark_throughput.py MPS throughput sweep and thermal soak
 scripts/run_report.py           per-run report.html/report.md and runs/index.html
+scripts/telemetry.py            live-console helpers and no-sudo machine telemetry used by train.py
 tests/test_model.py             model unit tests
 tests/test_run_report.py        run report unit tests
+tests/test_console.py           live console and telemetry helper tests
 tests/test_tokenizer.py         tokenizer unit tests
 ```
 
@@ -162,6 +164,17 @@ Parameter breakdown (default config, from `.venv/bin/python model.py`; tied weig
 - **dtype:** `--dtype fp32` (default, no autocast), `fp16` or `bf16` (autocast). In our MPS benchmark fp16 gave no gain over fp32 and bf16 was the slowest.
 - **Stop on non-finite loss:** checked at log steps; the loop breaks, then the final eval/samples still run.
 
+### Live console
+
+What `train.py` prints (helpers in `scripts/telemetry.py`; ANSI colour only when stdout is a TTY and `NO_COLOR` is unset, so piped or redirected output is plain text):
+
+- **Startup banner:** run dir, device/dtype, params, tokens per step, max steps, then a pre-flight line (swap used/total, free memory estimate, AC vs battery, battery-sensor temperature) and an expected-duration range (healthy ~6,500 tok/s vs throttled ~1,500 tok/s). A `WARNING:` line is printed if swap used is above 3 GB or the machine is on battery power.
+- **Live line** every `--log-interval` steps: step/max and percent, loss (and average of the last 10 logged), lr, tok/s (and run average), elapsed wall time, ETA, swap and temperature. ETA uses the rolling tok/s of the last 10 log intervals; eval and sample pauses are excluded from the rate because the interval timer is reset after them (the ETA does not add the remaining eval/sample time).
+- **Alerts** on their own lines: `!! THROTTLE` once per episode when the tok/s of the last 3 log intervals falls below 60% of the early-run median (median of the log records in the 50 steps after warmup, skipping the first record), and a `-- recovered` line when it is back above 80%; `!! SWAP` when swap has grown by more than 1 GB since start (cleared below 0.5 GB); `!! HOT` when the temperature proxy reaches 45 C (cleared below 42 C).
+- **Eval line:** val loss, change versus the previous eval, ppl, eval seconds and a `** new best **` marker. **Samples line:** prompt count and seconds.
+- **Final block:** FINISHED / INTERRUPTED / STOPPED EARLY, steps, tokens trained, best val loss, wall time, average tok/s, run dir and report path.
+- **Telemetry sources (no sudo, sampled at most once per 5 s, each with a 2 s timeout, any failure gives no value):** `sysctl vm.swapusage`, `pmset -g batt`, `vm_stat`, and `ioreg -rc AppleSmartBatteryPack -w0` (`Temperature`, hundredths of a degree C). The temperature is the battery sensor, a slow-moving proxy for chassis heat, not the die temperature. `pmset -g therm` only reports warning levels (usually "No thermal warning level has been recorded"), so it is not used; `powermetrics` needs sudo.
+
 ### Eval
 
 `evaluate` computes the mean loss over the whole val set in fixed, non-overlapping `block_size` windows (`(len(val) - 1) // block_size` windows, batched by `--eval-batch-size`), so every eval and every run measures the same tokens. Perplexity is `exp(loss)`. A final eval runs at the end unless one just ran at the last step.
@@ -239,7 +252,7 @@ Each run writes `runs/<YYYYMMDD-HHMMSS>/` (local time, second resolution; the fo
 
 | `type` | Fields | When |
 |--------|--------|------|
-| `train` | `step`, `loss`, `lr`, `grad_norm`, `tok_s`, `step_ms` | first step of the run and every `--log-interval` steps. `lr` is the value used for that step; `loss` is the mean over micro-batches |
+| `train` | `step`, `loss`, `lr`, `grad_norm`, `tok_s`, `step_ms`; optional `swap_used_mb` (int), `temp_c` (float, battery-sensor temperature proxy), `eta_s` (float, rolling-rate ETA) | first step of the run and every `--log-interval` steps. `lr` is the value used for that step; `loss` is the mean over micro-batches. The optional fields are omitted when unavailable (older runs never have them); readers must treat them as missing |
 | `eval` | `step`, `val_loss`, `val_ppl`, `val_tokens`, `eval_s`, and `mps_driver_mb` (MPS only) | every `--eval-interval` steps and at the end |
 | `samples` | `step`, `samples_s` | each time samples are written |
 
@@ -278,6 +291,7 @@ Run all tests:
 | `tests/test_tokenizer.py` | special token ids, vocab size, string round trips, no `<unk>` on ASCII, round trip of sample stories from the val jsonl. Skipped if `data/tokenizer.json` is missing |
 
 | `tests/test_run_report.py` | run report generation and its helpers |
+| `tests/test_console.py` | telemetry parsers on canned `sysctl`/`pmset`/`ioreg`/`vm_stat` output, rolling rate and ETA, throttle detector, formatting, live monitor |
 
 There are no tests for `train.py`, `scripts/get_tinystories.py` or `scripts/benchmark_throughput.py`.
 
