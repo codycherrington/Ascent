@@ -292,11 +292,8 @@ Run all tests:
 | `tests/test_tokenizer.py` | special token ids, vocab size, string round trips, no `<unk>` on ASCII, round trip of sample stories from the val jsonl. Skipped if `data/tokenizer.json` is missing |
 
 | `tests/test_run_report.py` | run report generation and its helpers |
-<<<<<<< HEAD
 | `tests/test_chat.py` | chat CLI helpers with a tiny random model: checkpoint discovery, incremental decode, slash commands, eos handling, truncation |
-=======
 | `tests/test_console.py` | telemetry parsers on canned `sysctl`/`pmset`/`ioreg`/`vm_stat` output, rolling rate and ETA, throttle detector, formatting, live monitor |
->>>>>>> origin/dev
 
 There are no tests for `train.py`, `scripts/get_tinystories.py` or `scripts/benchmark_throughput.py`.
 
