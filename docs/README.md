@@ -9,6 +9,7 @@ Project documentation. Tracked docs are listed first; the local-only files are g
 - [run-reports.md](run-reports.md) - how to read a run's `report.html` / `report.md`: sections, automatic flags and thresholds, text stats, regenerating.
 - [tokenizer.md](tokenizer.md) - byte-level BPE tokenizer rationale, usage and measured stats.
 - [datasets/tinystories.md](datasets/tinystories.md) - TinyStories dataset card (source, license, filtering, counts).
+- [persona.md](persona.md) - draft design for the motivating-storyteller persona: reply template, cast, examples, seed topics, data plan, eval (awaiting approval).
 - [../eval/README.md](../eval/README.md) - evaluation protocol; also [../eval/rubric.md](../eval/rubric.md) (fluency rubric) and `eval/prompts.txt` (20 fixed prompts).
 
 Local only (gitignored):
