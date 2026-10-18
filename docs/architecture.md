@@ -48,12 +48,16 @@ docs/goal.md                    goal, non-goals, what success looks like
 docs/run-reports.md             how to read a run report (sections, flags, thresholds)
 docs/tokenizer.md               tokenizer rationale, usage, measured stats
 docs/datasets/tinystories.md    dataset card (source, license, filtering, counts)
+docs/datasets/tinydialogues.md  dataset card and chat data format
 eval/README.md                  evaluation protocol
 eval/prompts.txt                20 fixed continuation prompts
 eval/rubric.md                  1-5 fluency rubric
 scripts/get_tinystories.py      data download and cleaning
+scripts/get_tinydialogues.py    TinyDialogues download and per-age stats
+scripts/prepare_chat_data.py    build data/chat_train.bin and data/chat_val.bin
 scripts/benchmark_throughput.py MPS throughput sweep and thermal soak
 scripts/run_report.py           per-run report.html/report.md and runs/index.html
+tests/test_chat_data.py         chat data pipeline and --init-from tests
 tests/test_model.py             model unit tests
 tests/test_run_report.py        run report unit tests
 tests/test_tokenizer.py         tokenizer unit tests
@@ -286,6 +290,16 @@ There are no tests for `train.py`, `scripts/get_tinystories.py` or `scripts/benc
 - Sweep (default): `--batch-sizes 8,16,32`, `--block-sizes 128,256`, `--dtypes fp32,fp16`, `--warmup 3`, `--steps 20`, `--max-seconds 15`. Each setting runs in a child process that is killed if a step takes over 30 s. Prints tok/s, step ms, loss and MPS memory, then the best setting.
 - Soak: `--soak-minutes M` with `--batch-size`, `--block-size` and `--dtype` runs a thermal soak directly; with `--soak-minutes` alone it sweeps first and soaks the best setting. It reports tok/s per 30 s window plus `pmset -g therm` at start, middle and end, and the first-vs-last window drop.
 
+## 9a. Chat fine-tuning data
+
+Stage 1 of conversation ability: fine-tune the TinyStories checkpoint on short back-and-forth dialogues, with the same tokenizer (the checkpoint is tied to it).
+
+- `scripts/get_tinydialogues.py` downloads `individual_age_data.zip` (exact per-age files) into `data/tinydialogues/` and prints per-age stats. Details: [datasets/tinydialogues.md](datasets/tinydialogues.md).
+- `scripts/prepare_chat_data.py` streams the zip in chunks (peak RSS about 225 MB) and writes `data/chat_train.bin` / `data/chat_val.bin` (uint16, `<eos>` after each window), mixing in TinyStories at 12% of tokens.
+- Format: one turn per line, `You: ...` / `Ascent: ...`. Windows are at most 256 tokens including `<eos>`, start at a `You:` turn and end on an `Ascent:` turn.
+- `train.py --init-from CKPT` loads model weights only (shape checked via `load_init_weights`; error on mismatch), with a fresh optimizer, step 0 and a new LR schedule; it is exclusive with `--resume`, and `init_from` is recorded in `config.json`. Pass `--train-bin data/chat_train.bin --val-bin data/chat_val.bin`.
+- Tests: `tests/test_chat_data.py` (parser, role mapping, window splitter, val split, `--init-from` helper).
+
 ## 10. Known limitations
 
 - `generate()` has no KV cache, so sampling is slow (20 prompts x 2 modes x 120 tokens per sample round).
@@ -296,7 +310,7 @@ There are no tests for `train.py`, `scripts/get_tinystories.py` or `scripts/benc
 - Two automatic text stats from `eval/README.md` are not implemented (sentence-final punctuation fraction, mean length in tokens); the rest are in `scripts/run_report.py`. The report flags are rough pointers, and the stats are word-based, not token-based.
 - Rubric scores are not stored anywhere: the scoring sheet in `report.html` is blank and not saved.
 - The report has only been exercised on short smoke runs; no baseline run exists yet.
-- Only TinyStories is supported; no chat format, persona or factual training.
+- Pretraining data is only TinyStories. The chat data pipeline (section 9a) exists but no chat fine-tune has been run yet; no persona or factual training.
 
 ## 11. Development workflow
 
