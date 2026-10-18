@@ -29,6 +29,7 @@ Ascent is a from-scratch GPT-style decoder-only LLM (~29.5M params, tied embeddi
 - `.venv/bin/python train.py` - baseline trainer (see `--help`); writes `runs/<YYYYMMDD-HHMMSS>/`
 - `.venv/bin/python train.py --init-from runs/<id>/ckpt_best.pt --train-bin data/chat_train.bin --val-bin data/chat_val.bin` - fine-tune from a checkpoint's weights (fresh optimizer, step 0)
 - `.venv/bin/python scripts/run_report.py runs/<id>` - regenerate `report.html`/`report.md` (train.py does this automatically; `--index` rebuilds `runs/index.html`)
+- `.venv/bin/python chat.py` - prompt -> continuation CLI for the newest checkpoint (base model, continues stories; `--run`, `--ckpt`, `--prompt`, `/help`)
 - `.venv/bin/python scripts/benchmark_throughput.py` - MPS throughput sweep; `--soak-minutes M` for a thermal soak
 - `.venv/bin/python -m unittest discover -s tests -v` - unit tests
 
@@ -42,6 +43,9 @@ Ascent is a from-scratch GPT-style decoder-only LLM (~29.5M params, tied embeddi
 - Gitignored, local-only: `data/` (only `.gitkeep` tracked), `runs/`, `docs/solutions-log.md`, `docs/legacy-issues-export.md`. Never commit model weights, checkpoints, or data.
 - `docs/solutions-log.md` is a dated journal of problems and solutions. Append entries with date and time (`## YYYY-MM-DD HH:MM TZ - title`). Never commit it.
 - Keep `docs/architecture.md` (and `docs/run-reports.md` when report flags or stats change) in sync when code structure, flags, or file formats change.
+
+## Training runs
+Claude never launches training or other long GPU jobs (`train.py`, benchmark sweeps, soaks), not even a short smoke run, and neither do workers or subagents. Claude gives Cody the exact command and he runs it in his own terminal. Verify changes with unit tests, imports and `--help` only.
 
 ## Git Workflow
 

@@ -49,4 +49,4 @@ These are cheap warning signs for looping and truncation, not quality scores.
 
 ## 5. Recording results
 
-`train.py` saves samples as plain text (`samples_stepNNNN.txt`: prompt id, prompt, sampled output, greedy output) inside the run folder, and each eval's loss and perplexity in `metrics.jsonl`. The text stats above, the evals table and a blank rubric scoring sheet are in the run's `report.html` and `report.md`. The folder layout is in `docs/architecture.md` section 7. Filled-in rubric score sheets are not stored by the tooling yet; if you keep them, put them in the same run folder.
+`train.py` saves samples as plain text (`samples_stepNNNN.txt`: prompt id, prompt, sampled output, greedy output) inside the run folder, and each eval's loss and perplexity in `metrics.jsonl`. The text stats above, the evals table and a blank rubric scoring sheet are in the run's `report.html` and `report.md`. The folder layout is in `docs/architecture.md` section 7. To record rubric scores, save a `review.json` in the same run folder (format in `docs/run-reports.md`); the report then shows the mean score and uses it for the Sample quality verdict.

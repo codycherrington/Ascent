@@ -117,10 +117,11 @@ class GPT(nn.Module):
 
 
 @torch.no_grad()
-def generate(model, ids, max_new_tokens, temperature=0.8, top_k=40, seed=None, eos_id=None):
-    """Extend ids (1D list or LongTensor of shape (1, T)) and return the new token ids.
+def generate_stream(model, ids, max_new_tokens, temperature=0.8, top_k=40, seed=None, eos_id=None):
+    """Yield new token ids one at a time (see generate() for the arguments).
 
     temperature == 0 means greedy. top_k always keeps at least the top token.
+    Stops after yielding eos_id. Closing the generator early restores train/eval mode.
     """
     device = next(model.parameters()).device
     if not torch.is_tensor(ids):
@@ -131,27 +132,32 @@ def generate(model, ids, max_new_tokens, temperature=0.8, top_k=40, seed=None, e
         gen = torch.Generator(device="cpu").manual_seed(seed)
     was_training = model.training
     model.eval()
-    new = []
-    for _ in range(max_new_tokens):
-        ctx = ids[:, -model.cfg.block_size:]
-        logits, _ = model(ctx)
-        logits = logits[0, -1].float().cpu()
-        if temperature == 0:
-            nxt = int(torch.argmax(logits))
-        else:
-            logits = logits / temperature
-            if top_k is not None and top_k > 0:
-                k = max(1, min(top_k, logits.numel()))
-                kth = torch.topk(logits, k).values[-1]
-                logits = logits.masked_fill(logits < kth, float("-inf"))
-            probs = torch.softmax(logits, dim=-1)
-            nxt = int(torch.multinomial(probs, 1, generator=gen))
-        new.append(nxt)
-        ids = torch.cat([ids, torch.tensor([[nxt]], device=device)], dim=1)
-        if eos_id is not None and nxt == eos_id:
-            break
-    model.train(was_training)
-    return new
+    try:
+        for _ in range(max_new_tokens):
+            ctx = ids[:, -model.cfg.block_size:]
+            logits, _ = model(ctx)
+            logits = logits[0, -1].float().cpu()
+            if temperature == 0:
+                nxt = int(torch.argmax(logits))
+            else:
+                logits = logits / temperature
+                if top_k is not None and top_k > 0:
+                    k = max(1, min(top_k, logits.numel()))
+                    kth = torch.topk(logits, k).values[-1]
+                    logits = logits.masked_fill(logits < kth, float("-inf"))
+                probs = torch.softmax(logits, dim=-1)
+                nxt = int(torch.multinomial(probs, 1, generator=gen))
+            ids = torch.cat([ids, torch.tensor([[nxt]], device=device)], dim=1)
+            yield nxt
+            if eos_id is not None and nxt == eos_id:
+                break
+    finally:
+        model.train(was_training)
+
+
+def generate(model, ids, max_new_tokens, temperature=0.8, top_k=40, seed=None, eos_id=None):
+    """Extend ids (1D list or LongTensor of shape (1, T)) and return the new token ids."""
+    return list(generate_stream(model, ids, max_new_tokens, temperature, top_k, seed, eos_id))
 
 
 if __name__ == "__main__":

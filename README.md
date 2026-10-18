@@ -24,13 +24,21 @@ python3 -m venv .venv
 .venv/bin/python -m unittest discover -s tests -v
 ```
 
+Talk to a trained checkpoint (a base TinyStories model: it continues your text as a story, it does not answer questions):
+
+```
+.venv/bin/python chat.py                    # newest run; /help for commands, /quit to exit
+you> Once upon a time, there was a little dog named Max.
+```
+
 Each training run writes `runs/<YYYYMMDD-HHMMSS>/` with config, metrics, samples, checkpoints and a `report.html`/`report.md` (regenerate with `.venv/bin/python scripts/run_report.py runs/<id>`; `runs/index.html` lists all runs; see [docs/run-reports.md](docs/run-reports.md)). Data and runs are gitignored.
 
 ## Layout
 
 | Path | What |
 |------|------|
-| `model.py` | GPT model and `generate()` |
+| `model.py` | GPT model, `generate()` and `generate_stream()` |
+| `chat.py` | prompt -> continuation CLI for a trained checkpoint |
 | `tokenizer.py` | BPE tokenizer CLI and helpers |
 | `train.py` | baseline trainer |
 | `scripts/` | data download, MPS throughput benchmark, per-run report generator |

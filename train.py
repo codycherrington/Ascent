@@ -13,6 +13,7 @@ import math
 import os
 import signal
 import subprocess
+import sys
 import time
 from dataclasses import asdict
 
@@ -20,6 +21,7 @@ import numpy as np
 import torch
 
 from model import GPT, GPTConfig, generate
+from scripts import telemetry as tele
 from tokenizer import decode, encode, load_tokenizer
 
 DTYPES = {"fp32": None, "fp16": torch.float16, "bf16": torch.bfloat16}
@@ -207,7 +209,18 @@ def main():
     with open(os.path.join(run_dir, "config.json"), "w") as f:
         json.dump(config, f, indent=2)
     metrics = open(os.path.join(run_dir, "metrics.jsonl"), "a")
-    print(f"run dir {run_dir} | device {device} {args.dtype} | {tokens_per_step} tok/step | {max_steps} steps")
+    use_color = sys.stdout.isatty() and not os.environ.get("NO_COLOR")
+    sampler = tele.Sampler()
+    snap = sampler.get()
+    print(f"run dir  {run_dir}")
+    print(f"setup    device {device} {args.dtype} | {total:,} params | {tokens_per_step:,} tok/step | "
+          f"{max_steps:,} steps ({max_steps * tokens_per_step:,} tokens)")
+    for line in tele.preflight_lines(snap):
+        print(f"preflight {line}")
+    for w in tele.preflight_warnings(snap):
+        print(tele.paint(f"WARNING: {w}", "red", use_color))
+    print(tele.expected_duration_line(max(0, max_steps - start_step) * tokens_per_step))
+    monitor = tele.LiveMonitor(tokens_per_step, max_steps, start_step, args.warmup_steps, sampler, use_color)
 
     def log(rec):
         metrics.write(json.dumps(rec) + "\n")
@@ -222,16 +235,17 @@ def main():
     signal.signal(signal.SIGINT, on_sigint)
 
     best_val = float("inf")
+    prev_val = None
 
     def do_samples(step):
         t0 = time.perf_counter()
         write_samples(model, tok, prompts, os.path.join(run_dir, f"samples_step{step:04d}.txt"), step)
         sec = round(time.perf_counter() - t0, 2)
         log({"type": "samples", "step": step, "samples_s": sec})
-        print(f"samples step {step}: {len(prompts)} prompts in {sec}s")
+        print(tele.fmt_samples_line(step, len(prompts), sec))
 
     def do_eval(step):
-        nonlocal best_val
+        nonlocal best_val, prev_val
         t0 = time.perf_counter()
         vloss, ntok = evaluate(model, val, args.block_size, args.eval_batch_size, device, dtype)
         rec = {"type": "eval", "step": step, "val_loss": vloss, "val_ppl": math.exp(vloss),
@@ -239,7 +253,9 @@ def main():
         if device == "mps":
             rec["mps_driver_mb"] = round(torch.mps.driver_allocated_memory() / 2**20)
         log(rec)
-        print(f"eval step {step}: val loss {vloss:.4f} ppl {math.exp(vloss):.2f} ({rec['eval_s']}s eval)")
+        print(tele.paint(tele.fmt_eval_line(step, vloss, math.exp(vloss), prev_val, vloss < best_val, rec["eval_s"]),
+                         "cyan", use_color))
+        prev_val = vloss
         save_ckpt(os.path.join(run_dir, "ckpt.pt"), model, opt, step, config)
         if vloss < best_val:
             best_val = vloss
@@ -249,6 +265,7 @@ def main():
     step = start_step
     sync(device)
     t_last, last_step = time.perf_counter(), start_step
+    t_start = t_last
     while step < max_steps and not stop["flag"]:
         lr = lr_at(step, args, max_steps)
         for g in opt.param_groups:
@@ -269,12 +286,21 @@ def main():
             sync(device)
             now = time.perf_counter()
             dt = (now - t_last) / (step - last_step)
+            prev_step = last_step
             t_last, last_step = now, step
             lval = float(loss_sum) / args.grad_accum
             rec = {"type": "train", "step": step, "loss": lval, "lr": lr, "grad_norm": float(grad_norm),
                    "tok_s": tokens_per_step / dt, "step_ms": 1000 * dt}
+            try:  # live console + optional telemetry; must never break training
+                n = step - prev_step
+                lines, extra = monitor.on_train(step, lval, lr, rec["tok_s"], n * tokens_per_step, n * dt,
+                                                now - t_start)
+                rec.update(extra)
+            except Exception as e:  # noqa: BLE001
+                lines = [f"step {step} | loss {lval:.4f} | {rec['tok_s']:.0f} tok/s (live console error: {e})"]
             log(rec)
-            print(f"step {step:5d} | loss {lval:.4f} | lr {lr:.2e} | {rec['tok_s']:7.0f} tok/s | {rec['step_ms']:.0f} ms")
+            for line in lines:
+                print(line, flush=True)
             if not math.isfinite(lval):
                 print("non-finite loss, stopping")
                 break
@@ -294,13 +320,23 @@ def main():
     if not args.no_samples:
         do_samples(step)
     metrics.close()
-    print(f"done at step {step}; best val loss {best_val:.4f}; run dir {run_dir}")
+    wall = time.perf_counter() - t_start
+    report_path = "skipped (--no-report)" if args.no_report else "none"
     if not args.no_report:
         try:
             from scripts.run_report import write_report
-            print(f"report: {write_report(run_dir)}")
+            report_path = write_report(run_dir)
         except Exception as e:  # noqa: BLE001
-            print(f"warning: report failed ({type(e).__name__}: {e})")
+            report_path = f"failed ({type(e).__name__}: {e})"
+    status = "interrupted" if stop["flag"] else ("finished" if step >= max_steps else "stopped early")
+    trained = (step - start_step) * tokens_per_step
+    avg = f"{monitor.tok_total / monitor.sec_total:,.0f}" if monitor.sec_total else "n/a"
+    best = f"{best_val:.4f}" if math.isfinite(best_val) else "n/a"
+    print("-" * 72)
+    print(f"{status.upper()}  steps {step:,}/{max_steps:,} | tokens {trained:,} | best val loss {best}")
+    print(f"wall time {tele.fmt_duration(wall)} | avg {avg} tok/s")
+    print(f"run dir {run_dir}")
+    print(f"report  {report_path}")
 
 
 if __name__ == "__main__":

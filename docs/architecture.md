@@ -38,7 +38,8 @@ LICENSE
 README.md                       short project summary
 requirements.txt                torch, torchvision, torchaudio, matplotlib, datasets, tqdm, tokenizers, numpy
 dashboard.py                    intentionally empty; reserved for the future training portal
-model.py                        GPT model, param counts, generate()
+model.py                        GPT model, param counts, generate() and generate_stream()
+chat.py                         prompt -> continuation CLI for a trained checkpoint
 tokenizer.py                    BPE train/encode CLI and load_tokenizer/encode/decode helpers
 train.py                        baseline trainer (single file)
 data/.gitkeep                   keeps the otherwise-ignored data/ dir in the repo
@@ -57,9 +58,11 @@ scripts/get_tinydialogues.py    TinyDialogues download and per-age stats
 scripts/prepare_chat_data.py    build data/chat_train.bin and data/chat_val.bin
 scripts/benchmark_throughput.py MPS throughput sweep and thermal soak
 scripts/run_report.py           per-run report.html/report.md and runs/index.html
+scripts/telemetry.py            live-console helpers and no-sudo machine telemetry used by train.py
 tests/test_chat_data.py         chat data pipeline and --init-from tests
 tests/test_model.py             model unit tests
 tests/test_run_report.py        run report unit tests
+tests/test_console.py           live console and telemetry helper tests
 tests/test_tokenizer.py         tokenizer unit tests
 ```
 
@@ -166,6 +169,17 @@ Parameter breakdown (default config, from `.venv/bin/python model.py`; tied weig
 - **dtype:** `--dtype fp32` (default, no autocast), `fp16` or `bf16` (autocast). In our MPS benchmark fp16 gave no gain over fp32 and bf16 was the slowest.
 - **Stop on non-finite loss:** checked at log steps; the loop breaks, then the final eval/samples still run.
 
+### Live console
+
+What `train.py` prints (helpers in `scripts/telemetry.py`; ANSI colour only when stdout is a TTY and `NO_COLOR` is unset, so piped or redirected output is plain text):
+
+- **Startup banner:** run dir, device/dtype, params, tokens per step, max steps, then a pre-flight line (swap used/total, free memory estimate, AC vs battery, battery-sensor temperature) and an expected-duration range (healthy ~6,500 tok/s vs throttled ~1,500 tok/s). A `WARNING:` line is printed if swap used is above 3 GB or the machine is on battery power.
+- **Live line** every `--log-interval` steps: step/max and percent, loss (and average of the last 10 logged), lr, tok/s (and run average), elapsed wall time, ETA, swap and temperature. ETA uses the rolling tok/s of the last 10 log intervals; eval and sample pauses are excluded from the rate because the interval timer is reset after them (the ETA does not add the remaining eval/sample time).
+- **Alerts** on their own lines: `!! THROTTLE` once per episode when the tok/s of the last 3 log intervals falls below 60% of the early-run median (median of the log records in the 50 steps after warmup, skipping the first record), and a `-- recovered` line when it is back above 80%; `!! SWAP` when swap has grown by more than 1 GB since start (cleared below 0.5 GB); `!! HOT` when the temperature proxy reaches 45 C (cleared below 42 C).
+- **Eval line:** val loss, change versus the previous eval, ppl, eval seconds and a `** new best **` marker. **Samples line:** prompt count and seconds.
+- **Final block:** FINISHED / INTERRUPTED / STOPPED EARLY, steps, tokens trained, best val loss, wall time, average tok/s, run dir and report path.
+- **Telemetry sources (no sudo, sampled at most once per 5 s, each with a 2 s timeout, any failure gives no value):** `sysctl vm.swapusage`, `pmset -g batt`, `vm_stat`, and `ioreg -rc AppleSmartBatteryPack -w0` (`Temperature`, hundredths of a degree C). The temperature is the battery sensor, a slow-moving proxy for chassis heat, not the die temperature. `pmset -g therm` only reports warning levels (usually "No thermal warning level has been recorded"), so it is not used; `powermetrics` needs sudo.
+
 ### Eval
 
 `evaluate` computes the mean loss over the whole val set in fixed, non-overlapping `block_size` windows (`(len(val) - 1) // block_size` windows, batched by `--eval-batch-size`), so every eval and every run measures the same tokens. Perplexity is `exp(loss)`. A final eval runs at the end unless one just ran at the last step.
@@ -243,7 +257,7 @@ Each run writes `runs/<YYYYMMDD-HHMMSS>/` (local time, second resolution; the fo
 
 | `type` | Fields | When |
 |--------|--------|------|
-| `train` | `step`, `loss`, `lr`, `grad_norm`, `tok_s`, `step_ms` | first step of the run and every `--log-interval` steps. `lr` is the value used for that step; `loss` is the mean over micro-batches |
+| `train` | `step`, `loss`, `lr`, `grad_norm`, `tok_s`, `step_ms`; optional `swap_used_mb` (int), `temp_c` (float, battery-sensor temperature proxy), `eta_s` (float, rolling-rate ETA) | first step of the run and every `--log-interval` steps. `lr` is the value used for that step; `loss` is the mean over micro-batches. The optional fields are omitted when unavailable (older runs never have them); readers must treat them as missing |
 | `eval` | `step`, `val_loss`, `val_ppl`, `val_tokens`, `eval_s`, and `mps_driver_mb` (MPS only) | every `--eval-interval` steps and at the end |
 | `samples` | `step`, `samples_s` | each time samples are written |
 
@@ -256,7 +270,7 @@ The tokenizer is not yet copied into the run folder (`docs/tokenizer.md` lists t
     .venv/bin/python scripts/run_report.py runs/<id>     # one run (also refreshes the index)
     .venv/bin/python scripts/run_report.py --index       # index only
 
-Sections, the exact text-stat definitions, the status values and every automatic flag with its threshold are described in `docs/run-reports.md`. Incomplete runs (crash, truncated last line, no eval or samples) degrade to notes rather than errors.
+The report opens with a GOOD / MEDIUM / FAIL verdict for Model quality and for Run health, a six-tile scorecard and short went-well / went-wrong / proposed-fixes blocks (rule-based, no AI), with the detail in collapsed sections. The layout, verdict thresholds, the optional `review.json`, the exact text-stat definitions, the status values and every automatic flag are described in `docs/run-reports.md`. Incomplete runs (crash, truncated last line, no eval or samples) degrade to notes rather than errors.
 
 ## 8. Eval
 
@@ -282,6 +296,8 @@ Run all tests:
 | `tests/test_tokenizer.py` | special token ids, vocab size, string round trips, no `<unk>` on ASCII, round trip of sample stories from the val jsonl. Skipped if `data/tokenizer.json` is missing |
 
 | `tests/test_run_report.py` | run report generation and its helpers |
+| `tests/test_chat.py` | chat CLI helpers with a tiny random model: checkpoint discovery, incremental decode, slash commands, eos handling, truncation |
+| `tests/test_console.py` | telemetry parsers on canned `sysctl`/`pmset`/`ioreg`/`vm_stat` output, rolling rate and ETA, throttle detector, formatting, live monitor |
 
 There are no tests for `train.py`, `scripts/get_tinystories.py` or `scripts/benchmark_throughput.py`.
 
@@ -290,7 +306,33 @@ There are no tests for `train.py`, `scripts/get_tinystories.py` or `scripts/benc
 - Sweep (default): `--batch-sizes 8,16,32`, `--block-sizes 128,256`, `--dtypes fp32,fp16`, `--warmup 3`, `--steps 20`, `--max-seconds 15`. Each setting runs in a child process that is killed if a step takes over 30 s. Prints tok/s, step ms, loss and MPS memory, then the best setting.
 - Soak: `--soak-minutes M` with `--batch-size`, `--block-size` and `--dtype` runs a thermal soak directly; with `--soak-minutes` alone it sweeps first and soaks the best setting. It reports tok/s per 30 s window plus `pmset -g therm` at start, middle and end, and the first-vs-last window drop.
 
-## 9a. Chat fine-tuning data
+## 9a. Chat CLI
+
+`chat.py` loads a checkpoint once and runs a prompt -> continuation session, streaming tokens as `model.generate_stream()` yields them. Ascent is a base model trained only on TinyStories: it continues your text as a children's story, it does not answer questions or follow instructions.
+
+```
+.venv/bin/python chat.py                                   # newest run's ckpt_best.pt (falls back to ckpt.pt)
+.venv/bin/python chat.py --prompt "Once upon a time" --seed 1   # one-shot: print continuation, exit
+```
+
+| Flag | Default | Meaning |
+|------|---------|---------|
+| `--run runs/<id>` | newest run with a checkpoint | run folder; uses its `ckpt_best.pt`, else `ckpt.pt` |
+| `--ckpt PATH` | | explicit checkpoint file (beats `--run`) |
+| `--tokenizer PATH` | `data/tokenizer.json` | tokenizer file |
+| `--device auto\|mps\|cpu` | `auto` | MPS if available, else CPU |
+| `--temperature` | 0.8 | 0 = greedy |
+| `--top-k` | 40 | 0 = off |
+| `--max-new-tokens` | 150 | per reply |
+| `--seed` | random | the seed used is printed after every reply so a run can be reproduced |
+| `--no-stop` | off | do not stop at `<eos>` (the literal `<eos>` text is always hidden) |
+| `--prompt TEXT` | | one-shot mode; continuation to stdout, stats to stderr |
+
+In the session: `/help`, `/temp X`, `/topk N`, `/len N`, `/seed N|random`, `/greedy` (toggle), `/again` (same prompt, new seed), `/continue` (extend the last output), `/info`, `/quit` (or Ctrl-D). Ctrl-C during generation stops that reply and keeps the session; at an empty prompt it prints a hint. After `<eos>` a dim `[end of story]` marker is shown. Prompts longer than `block_size` are cut to their last `block_size` tokens with a notice. Colour is used only when stdout is a TTY and `NO_COLOR` is unset; piped stdin works.
+
+Limitations: base model, not instruction-tuned (no Q&A or chat behaviour); no KV cache, so each token re-runs the full context; the incremental decoder re-decodes the whole reply each step.
+
+## 9b. Chat fine-tuning data
 
 Stage 1 of conversation ability: fine-tune the TinyStories checkpoint on short back-and-forth dialogues, with the same tokenizer (the checkpoint is tied to it).
 
@@ -302,15 +344,15 @@ Stage 1 of conversation ability: fine-tune the TinyStories checkpoint on short b
 
 ## 10. Known limitations
 
-- `generate()` has no KV cache, so sampling is slow (20 prompts x 2 modes x 120 tokens per sample round).
+- `generate()` / `generate_stream()` have no KV cache, so sampling is slow (the chat CLI included; roughly 35-90 tok/s on MPS for this model; 20 prompts x 2 modes x 120 tokens per sample round).
 - The live SIGINT path and `--sample-interval` have not been tested in a live run.
 - `--resume` reseeds the RNG (batches repeat) and starts a new run folder; see section 6.
 - `dashboard.py` is empty; the training portal is a roadmap item.
-- The modular trainer, run-record tooling (such as copying the tokenizer into runs) and the generation CLI are roadmap items (see GitHub Issues); `train.py` is a single baseline file.
+- The modular trainer, run-record tooling (such as copying the tokenizer into runs) are roadmap items (see GitHub Issues); `train.py` is a single baseline file.
 - Two automatic text stats from `eval/README.md` are not implemented (sentence-final punctuation fraction, mean length in tokens); the rest are in `scripts/run_report.py`. The report flags are rough pointers, and the stats are word-based, not token-based.
 - Rubric scores are not stored anywhere: the scoring sheet in `report.html` is blank and not saved.
 - The report has only been exercised on short smoke runs; no baseline run exists yet.
-- Pretraining data is only TinyStories. The chat data pipeline (section 9a) exists but no chat fine-tune has been run yet; no persona or factual training.
+- Pretraining data is only TinyStories. The chat data pipeline (section 9b) exists but no chat fine-tune has been run yet; no persona or factual training.
 
 ## 11. Development workflow
 

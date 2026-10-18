@@ -6,7 +6,7 @@ Project documentation. Tracked docs are listed first; the local-only files are g
 
 - [goal.md](goal.md) - the first goal (fluent English on TinyStories), non-goals and success criteria.
 - [architecture.md](architecture.md) - technical reference for how the code base is structured: pipeline, files, model, trainer, run records, tests.
-- [run-reports.md](run-reports.md) - how to read a run's `report.html` / `report.md`: sections, automatic flags and thresholds, text stats, regenerating.
+- [run-reports.md](run-reports.md) - how to read a run's `report.html` / `report.md`: layout, verdicts and thresholds, optional `review.json`, automatic flags, text stats, regenerating.
 - [tokenizer.md](tokenizer.md) - byte-level BPE tokenizer rationale, usage and measured stats.
 - [datasets/tinystories.md](datasets/tinystories.md) - TinyStories dataset card (source, license, filtering, counts).
 - [datasets/tinydialogues.md](datasets/tinydialogues.md) - TinyDialogues dataset card and the Stage-1 chat data format (`chat_train.bin` / `chat_val.bin`).
