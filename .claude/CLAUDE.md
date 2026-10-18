@@ -40,6 +40,9 @@ Ascent is a from-scratch GPT-style decoder-only LLM (~29.5M params, tied embeddi
 - `docs/solutions-log.md` is a dated journal of problems and solutions. Append entries with date and time (`## YYYY-MM-DD HH:MM TZ - title`). Never commit it.
 - Keep `docs/architecture.md` (and `docs/run-reports.md` when report flags or stats change) in sync when code structure, flags, or file formats change.
 
+## Training runs
+Claude never launches training or other long GPU jobs (`train.py`, benchmark sweeps, soaks), not even a short smoke run, and neither do workers or subagents. Claude gives Cody the exact command and he runs it in his own terminal. Verify changes with unit tests, imports and `--help` only.
+
 ## Git Workflow
 
 Three long-lived branches: `dev`, `test`, `main`.
