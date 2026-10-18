@@ -252,7 +252,7 @@ The tokenizer is not yet copied into the run folder (`docs/tokenizer.md` lists t
     .venv/bin/python scripts/run_report.py runs/<id>     # one run (also refreshes the index)
     .venv/bin/python scripts/run_report.py --index       # index only
 
-Sections, the exact text-stat definitions, the status values and every automatic flag with its threshold are described in `docs/run-reports.md`. Incomplete runs (crash, truncated last line, no eval or samples) degrade to notes rather than errors.
+The report opens with a GOOD / MEDIUM / FAIL overall verdict, a six-tile scorecard and short went-well / went-wrong / proposed-fixes blocks (rule-based, no AI), with the detail in collapsed sections. The layout, verdict thresholds, the optional `review.json`, the exact text-stat definitions, the status values and every automatic flag are described in `docs/run-reports.md`. Incomplete runs (crash, truncated last line, no eval or samples) degrade to notes rather than errors.
 
 ## 8. Eval
 
