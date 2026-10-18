@@ -9,15 +9,15 @@ Run folders and reports are local and gitignored (`runs/`). Reports are derived 
 .venv/bin/python scripts/run_report.py --index       # only rebuild runs/index.html
 ```
 
-Files: `runs/<id>/report.html` (self-contained, charts embedded), `runs/<id>/report.md` (compact text version for scanning by a human or an LLM), `runs/index.html` (all runs, newest first, overall verdict column, best val loss highlighted). This is where the results for the success criteria in `docs/goal.md` are read from.
+Files: `runs/<id>/report.html` (self-contained, charts embedded), `runs/<id>/report.md` (compact text version for scanning by a human or an LLM), `runs/index.html` (all runs, newest first, model quality and run health verdict columns, best val loss highlighted). This is where the results for the success criteria in `docs/goal.md` are read from.
 
 ## Layout
 
 `report.html`, top to bottom:
 
 1. Title, run id, status.
-2. One big overall verdict badge (GOOD / MEDIUM / FAIL) with a one-line summary of what is not GOOD.
-3. Scorecard: 6 tiles (Learning, Generalization, Stability, Speed & thermals, Sample quality, Completeness), each coloured with the verdict word, the category and one key number.
+2. Two badges side by side (stacked on narrow screens): Model quality and Run health, each GOOD / MEDIUM / FAIL with a one-line summary of what is not GOOD.
+3. Scorecard: 6 tiles grouped under their badge (Model quality: Learning, Generalization, Sample quality; Run health: Stability, Speed & thermals, Completeness), each coloured with the verdict word, the category and one key number.
 4. Three short blocks: What went well, What went wrong, Proposed fixes (at most 5 one-line bullets each, most important first), then the suggested next run (text only, never executed).
 5. Charts: train and val loss, learning rate, grad norm, throughput, step time.
 6. Collapsed (closed by default): key numbers, automatic flags and notes, evals, samples per step (stats, every prompt with outputs, blank scoring sheet), comparison with the previous comparable run, config.
@@ -26,7 +26,12 @@ The verdict is always written as a word, never colour only. `report.md` opens wi
 
 ## Verdicts
 
-Overall rule: **FAIL** if Stability, Completeness or Learning is FAIL; otherwise **MEDIUM** if any category is MEDIUM or FAIL; otherwise **GOOD**. A FAIL in Speed, Generalization or Sample quality therefore shows as an overall MEDIUM, with the bad tile visible right below. `N/A` (missing data) never counts against a run.
+There are two badges, each the worst of its three categories (FAIL beats MEDIUM beats GOOD):
+
+- **Model quality** = worst of Learning, Generalization, Sample quality (is the model any good?).
+- **Run health** = worst of Stability, Speed & thermals, Completeness (did the run go well?).
+
+`N/A` tiles (missing data) are ignored; if all three are N/A the badge is N/A. Examples: a run with val loss 2.43 (Learning MEDIUM) that throttled to 1,599 tok/s (Speed FAIL) is Model quality MEDIUM, Run health FAIL. A model with GOOD scores on a run that crashed (Completeness FAIL) is Model quality GOOD, Run health FAIL.
 
 All thresholds live in one dict, `THRESHOLDS` at the top of `scripts/run_report.py`, and are **provisional**: they are placeholders until the milestone thresholds in `docs/goal.md` are filled in after the baseline run. Change them in the dict and in this table together.
 

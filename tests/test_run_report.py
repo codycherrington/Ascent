@@ -74,7 +74,7 @@ class TestRunReport(unittest.TestCase):
         self.assertIn("complete", md)
         self.assertIn("best", md)
         page = open(path).read()
-        for needle in ("data:image/png;base64", "OVERALL", "Proposed fixes", "What went well", "Manual scoring", "<details>"):
+        for needle in ("data:image/png;base64", "MODEL QUALITY", "RUN HEALTH", "Proposed fixes", "What went well", "Manual scoring", "<details>"):
             self.assertIn(needle, page)
         self.assertNotIn("<details open", page)
         self.assertIn("<details><summary>Evals", page)
@@ -259,16 +259,30 @@ class TestVerdicts(unittest.TestCase):
         self.assertEqual(vd_of(self.run_(ckpt=True, n_train=20, max_steps=30))["Completeness"]["v"], "MEDIUM")  # interrupted
         self.assertEqual(vd_of(self.run_(ckpt=True, n_train=25, final_eval=False, max_steps=30))["Completeness"]["v"], "FAIL")
 
-    def test_overall_rule(self):
-        def vd(**kw):
-            return {c: {"v": kw.get(c.split()[0], "GOOD")} for c in rr.CATEGORIES}
-        self.assertEqual(rr.overall_verdict(vd()), "GOOD")
-        self.assertEqual(rr.overall_verdict(vd(Speed="FAIL")), "MEDIUM")     # speed or generalization FAIL alone is MEDIUM
-        self.assertEqual(rr.overall_verdict(vd(Generalization="FAIL")), "MEDIUM")
-        self.assertEqual(rr.overall_verdict(vd(Sample="MEDIUM")), "MEDIUM")
-        self.assertEqual(rr.overall_verdict(vd(Learning="MEDIUM")), "MEDIUM")
-        for c in ("Stability", "Completeness", "Learning"):
-            self.assertEqual(rr.overall_verdict(vd(**{c: "FAIL"})), "FAIL")
+    def test_group_badges(self):
+        def badges(**kw):
+            vd = {c: {"v": kw.get(c.split()[0], "GOOD")} for c in rr.CATEGORIES}
+            return (rr.group_verdict(vd, rr.GROUPS["Model quality"]), rr.group_verdict(vd, rr.GROUPS["Run health"]))
+        self.assertEqual(badges(), ("GOOD", "GOOD"))
+        self.assertEqual(badges(Speed="FAIL"), ("GOOD", "FAIL"))            # model GOOD + run FAIL
+        self.assertEqual(badges(Learning="FAIL"), ("FAIL", "GOOD"))
+        self.assertEqual(badges(Generalization="MEDIUM", Stability="MEDIUM"), ("MEDIUM", "MEDIUM"))
+        self.assertEqual(badges(Sample="MEDIUM", Completeness="FAIL"), ("MEDIUM", "FAIL"))
+        self.assertEqual(badges(Sample="N/A"), ("GOOD", "GOOD"))            # N/A ignored
+        na = {c: {"v": "N/A"} for c in rr.CATEGORIES}
+        self.assertEqual(rr.group_verdict(na, rr.GROUPS["Run health"]), "N/A")
+
+    def test_group_badges_in_outputs(self):
+        d = self.run_(n_train=40, max_steps=40, ckpt=True, tok_fn=lambda i: 2000 if i < 20 else 1000)
+        rr.write_report(d)
+        md = open(os.path.join(d, "report.md")).read()
+        self.assertIn("**RUN HEALTH: FAIL**", md)
+        self.assertIn("**MODEL QUALITY:", md)
+        page = open(os.path.join(d, "report.html")).read()
+        self.assertIn("MODEL QUALITY:", page)
+        self.assertIn("RUN HEALTH: FAIL", page)
+        idx = open(os.path.join(self.root, "index.html")).read()
+        self.assertIn("<th>model quality</th><th>run health</th>", idx)
 
     def test_findings_limits_and_throttle_fix(self):
         d = self.run_(n_train=40, max_steps=40, tok_fn=lambda i: 3000 if i < 20 else 1000)
@@ -300,7 +314,7 @@ class TestVerdicts(unittest.TestCase):
         make_run(self.root, "20261017-500000")
         rr.write_index(self.root)
         idx = open(os.path.join(self.root, "index.html")).read()
-        self.assertIn("<th>verdict</th>", idx)
+        self.assertIn("<th>run health</th>", idx)
         self.assertRegex(idx, r"v-(good|medium|fail)")
 
 

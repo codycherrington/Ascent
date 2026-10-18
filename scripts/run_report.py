@@ -3,7 +3,7 @@
     .venv/bin/python scripts/run_report.py runs/<id>     # report.html + report.md in that folder, then the index
     .venv/bin/python scripts/run_report.py --index       # only rebuild runs/index.html
 
-Opens with GOOD / MEDIUM / FAIL verdicts per category and overall (thresholds in THRESHOLDS below, rules and
+Opens with GOOD / MEDIUM / FAIL verdicts per category and two group badges (Model quality, Run health) (thresholds in THRESHOLDS below, rules and
 no AI), then went-well / went-wrong / proposed-fixes, charts and collapsed details.
 Reads config.json, metrics.jsonl, samples_stepNNNN.txt and optional review.json from a run folder. Tolerates incomplete
 runs (crash, Ctrl-C, truncated last line, no evals, no samples); problems become notes, not errors.
@@ -323,7 +323,8 @@ def summarize(run):
     s["samples_last"] = run["sample_files"][-1] if run["sample_files"] else None
     s["review"] = load_review(run["dir"])
     s["verdicts"] = verdicts(run, s)
-    s["overall"] = overall_verdict(s["verdicts"])
+    s["model"] = group_verdict(s["verdicts"], GROUPS["Model quality"])
+    s["health"] = group_verdict(s["verdicts"], GROUPS["Run health"])
     return s
 
 
@@ -450,18 +451,19 @@ def verdicts(run, s):
     return out
 
 
-def overall_verdict(vd):
-    """FAIL if Stability, Completeness or Learning is FAIL; else MEDIUM if any category is MEDIUM or FAIL; else GOOD."""
-    if any(vd[c]["v"] == FAIL for c in ("Stability", "Completeness", "Learning")):
-        return FAIL
-    return MEDIUM if any(x["v"] in (MEDIUM, FAIL) for x in vd.values()) else GOOD
+GROUPS = {"Model quality": ["Learning", "Generalization", "Sample quality"],
+          "Run health": ["Stability", "Speed & thermals", "Completeness"]}
 
 
-def overall_line(s):
-    vd = s["verdicts"]
-    bad = sorted((c for c in CATEGORIES if vd[c]["v"] in (MEDIUM, FAIL)), key=lambda c: -_ORDER[vd[c]["v"]])
+def group_verdict(vd, cats):
+    """Worst of the categories' verdicts; N/A tiles are ignored, all N/A gives N/A."""
+    return _worst(*(vd[c]["v"] for c in cats))
+
+
+def group_line(vd, cats):
+    bad = sorted((c for c in cats if vd[c]["v"] in (MEDIUM, FAIL)), key=lambda c: -_ORDER[vd[c]["v"]])
     if not bad:
-        return "All categories GOOD."
+        return "All GOOD." if group_verdict(vd, cats) == GOOD else "No data."
     return "; ".join(f"{c} {vd[c]['v']} ({vd[c]['key']})" for c in bad) + "."
 
 
@@ -861,10 +863,13 @@ def render_md(run, s, cmp_):
     vd, fd = s["verdicts"], findings(run, s)
     L = []
     L.append(f"# Run {run['id']} - {s['status']}")
-    L.append(f"**OVERALL: {s['overall']}** - {overall_line(s)}")
+    L.append(f"**MODEL QUALITY: {s['model']}** - {group_line(vd, GROUPS['Model quality'])}")
+    L.append(f"**RUN HEALTH: {s['health']}** - {group_line(vd, GROUPS['Run health'])}")
     L.append("## Scorecard")
-    for c in CATEGORIES:
-        L.append(f"- {vd[c]['v']} - {c} - {vd[c]['key']}" + (f" ({vd[c]['sub']})" if vd[c].get("sub") else ""))
+    for g, cats in GROUPS.items():
+        L.append(f"{g}:")
+        for c in cats:
+            L.append(f"- {vd[c]['v']} - {c} - {vd[c]['key']}" + (f" ({vd[c]['sub']})" if vd[c].get("sub") else ""))
     for title, key in (("Went well", "good"), ("Went wrong", "bad"), ("Proposed fixes", "fixes")):
         L.append(f"## {title}")
         L.extend(f"- {t}" for t in fd[key] or ["(nothing to report)"])
@@ -945,9 +950,9 @@ pre{white-space:pre-wrap;background:var(--card);border:1px solid var(--line);bor
 details{margin:6px 0;border:1px solid var(--line);border-radius:8px;padding:6px 12px;background:var(--card)}
 details details{background:var(--bg)}summary{cursor:pointer;font-weight:600}a{color:var(--info)}code{background:var(--card);padding:1px 4px;border-radius:4px}
 .sc td{height:1.6em;min-width:3.5em}
-.badge{display:flex;align-items:center;gap:16px;border-radius:12px;padding:14px 20px;margin:10px 0;border:2px solid currentColor}
-.badge .w{font-size:2.4rem;font-weight:800;letter-spacing:.04em}.badge .t{font-size:1.05rem}
-.tiles{display:grid;grid-template-columns:repeat(auto-fit,minmax(150px,1fr));gap:10px;margin:10px 0}
+.badge{display:flex;flex-direction:column;gap:2px;border-radius:12px;padding:14px 20px;margin:10px 0;border:2px solid currentColor}
+.badge .w{font-size:1.6rem;font-weight:800;letter-spacing:.04em}.badge .t{font-size:1.05rem}
+.groups{display:grid;grid-template-columns:repeat(auto-fit,minmax(min(440px,100%),1fr));gap:16px;margin:10px 0}.tiles{display:grid;grid-template-columns:repeat(auto-fit,minmax(110px,1fr));gap:8px;margin:8px 0}
 .tile{border-radius:10px;padding:10px 12px;border:2px solid currentColor}.tile .w{display:block;font-weight:800;letter-spacing:.05em}
 .tile .c{display:block;color:var(--fg);font-weight:600}.tile .k{display:block;color:var(--fg);font-size:1.05rem}.tile .s{display:block;color:var(--mute);font-size:.8rem}
 .v-good{color:var(--good);background:var(--goodbg)}.v-medium{color:var(--med);background:var(--medbg)}
@@ -956,7 +961,6 @@ details details{background:var(--bg)}summary{cursor:pointer;font-weight:600}a{co
 .col{background:var(--card);border:1px solid var(--line);border-radius:10px;padding:8px 14px}.col h2{margin:.2em 0 .3em;border:0;font-size:1rem}
 .col ul{margin:0;padding-left:1.1em}.col li{margin:.25em 0}
 .next{margin:8px 0}.next code{display:block;white-space:pre-wrap;padding:6px 10px}
-@media (max-width:600px){.badge{flex-direction:column;align-items:flex-start;gap:4px}}
 """
 
 
@@ -984,14 +988,18 @@ def render_html(run, s, cmp_, charts, overlay):
              f"<title>Ascent run {e(run['id'])}</title><style>{CSS}</style></head><body>")
     # (a) title
     P.append(f"<p class=mute><a href='../index.html'>all runs</a></p><h1>Run {e(run['id'])} <span class=mute>({e(s['status'])})</span></h1>")
-    # (b) overall badge
-    P.append(f"<div class='badge {vclass(s['overall'])}'><span class=w>OVERALL: {e(s['overall'])}</span>"
-             f"<span class=t>{e(overall_line(s))}</span></div>")
-    # (c) scorecard
-    tiles = "".join(f"<div class='tile {vclass(vd[c]['v'])}'><span class=w>{e(vd[c]['v'])}</span><span class=c>{e(c)}</span>"
-                    f"<span class=k>{e(vd[c]['key'])}</span>" + (f"<span class=s>{e(vd[c]['sub'])}</span>" if vd[c].get("sub") else "")
-                    + "</div>" for c in CATEGORIES)
-    P.append(f"<div class=tiles>{tiles}</div>")
+    # (b)+(c) two badges, each with its three tiles
+    def tile(c):
+        return (f"<div class='tile {vclass(vd[c]['v'])}'><span class=w>{e(vd[c]['v'])}</span><span class=c>{e(c)}</span>"
+                f"<span class=k>{e(vd[c]['key'])}</span>" + (f"<span class=s>{e(vd[c]['sub'])}</span>" if vd[c].get("sub") else "")
+                + "</div>")
+    groups = ""
+    for g, cats in GROUPS.items():
+        gv = s["model"] if g == "Model quality" else s["health"]
+        groups += (f"<section class=group><div class='badge {vclass(gv)}'><span class=w>{e(g.upper())}: {e(gv)}</span>"
+                   f"<span class=t>{e(group_line(vd, cats))}</span></div>"
+                   f"<div class=tiles>{''.join(tile(c) for c in cats)}</div></section>")
+    P.append(f"<div class=groups>{groups}</div>")
     # (d) good / bad / fixes
     P.append("<div class=cols>" + "".join(
         f"<div class=col><h2>{t}</h2><ul>" + "".join(f"<li>{e(x)}</li>" for x in (fd[k] or ["(nothing to report)"])) + "</ul></div>"
@@ -1080,18 +1088,18 @@ def write_index(runs_dir):
     cls = []
     for x in sums:
         link = f"<a href='{e(x['id'])}/report.html'>{e(x['id'])}</a>" if os.path.isfile(os.path.join(runs_dir, x["id"], "report.html")) else e(x["id"])
-        ov = x.get("overall", NA)
-        rows.append([f"<b class='{vclass(ov)}' style='padding:1px 6px;border-radius:4px'>{e(ov)}</b>", link, run_date(x["id"]),
+        pill = lambda v: f"<b class='{vclass(v)}' style='padding:1px 6px;border-radius:4px'>{e(v)}</b>"  # noqa: E731
+        rows.append([pill(x.get("model", NA)), pill(x.get("health", NA)), link, run_date(x["id"]),
                      f(x.get("params") / 1e6 if x.get("params") else None, 2) + "M",
                      f(x.get("tokens") / 1e6 if x.get("tokens") else None, 2) + "M",
                      f(x.get("final_val")) + f" ({f(x.get('final_ppl'), 1)})", f(x.get("best_val")) + f" ({f(x.get('best_ppl'), 1)})",
                      f(x.get("avg_tok_s"), 0), dur(x.get("wall_s")), e((x.get("git") or "n/a")[:8]), e(x.get("status", ""))])
         cls.append("best" if best is not None and x.get("best_val") == best else "")
-    head = ["verdict", "run", "date", "params", "tokens", "final val (ppl)", "best val (ppl)", "tok/s", "wall", "git", "status"]
+    head = ["model quality", "run health", "run", "date", "params", "tokens", "final val (ppl)", "best val (ppl)", "tok/s", "wall", "git", "status"]
     body = "".join(f"<tr{' class=best' if c else ''}>" + "".join(f"<td>{v}</td>" for v in r) + "</tr>" for r, c in zip(rows, cls))
     doc = (f"<!doctype html><html lang=en><head><meta charset=utf-8><meta name=viewport content='width=device-width,initial-scale=1'>"
            f"<title>Ascent runs</title><style>{CSS}</style></head><body><h1>Ascent runs</h1>"
-           f"<p class=mute>Newest first; best val loss highlighted; verdict is the overall GOOD / MEDIUM / FAIL. "
+           f"<p class=mute>Newest first; best val loss highlighted; model quality and run health are each GOOD / MEDIUM / FAIL. "
            f"Regenerate: <code>.venv/bin/python scripts/run_report.py --index</code></p>"
            f"<table><tr>{''.join(f'<th>{h}</th>' for h in head)}</tr>{body}</table></body></html>")
     path = os.path.join(runs_dir, "index.html")
